@@ -1,0 +1,26 @@
+{
+  "name": "skill-gateway",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:ui": "vite build --ssr entry-server.ts --outDir ../../dist/ui-server --emptyOutDir && vite build && node scripts/render-page.js",
+    "build": "npm run build:ui && tsc",
+    "start:mcp:http": "node dist/http-mcp.js",
+    "test": "npm run build:ui && node --experimental-strip-types --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig src/ui/tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^24.3.0",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^5.9.2",
+    "vite": "^8.3.1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1"
+  }
+}

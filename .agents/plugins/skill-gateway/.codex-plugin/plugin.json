@@ -1,0 +1,8 @@
+{
+  "name": "skill-gateway",
+  "version": "0.2.0",
+  "description": "Search and read a private local skill library through repeatable workflows.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json"
+}

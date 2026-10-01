@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'exec \"${NODE_BIN:-node}\" \"${SKILL_GATEWAY_ROOT:-.}/dist/prompt-hook.js\"'",
+            "timeout": 10,
+            "statusMessage": "Searching private skill library"
+          }
+        ]
+      }
+    ]
+  }
+}

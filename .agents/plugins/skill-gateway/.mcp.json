@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "skill_gateway": {
+      "type": "http",
+      "url": "http://127.0.0.1:8742/mcp"
+    }
+  }
+}

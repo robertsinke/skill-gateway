@@ -1,0 +1,42 @@
+<evaluation>
+  <qa_pair>
+    <question>Someone asks to use the skill that assembles the daily note. Look it up by the name daily-note. What is the directory basename of the one result?</question>
+    <answer>daily-note</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>The user names calendar-event. After an exact lookup, what is the skill name on the single result?</question>
+    <answer>calendar-event</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Search the library for creating a calendar event, with the default page size. What is the name of the first result?</question>
+    <answer>calendar-event</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Search for capturing notes about a person. What is the name of the top result?</question>
+    <answer>person-notes</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Search for purple zircon teapot. How many positive hits are in the total?</question>
+    <answer>0</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Search for the and of. How many positive hits are in the total?</question>
+    <answer>0</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Look up a skill named missing-skill. How many results come back?</question>
+    <answer>0</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Search for creating a calendar event and read the second result. What is its name?</question>
+    <answer>calendar</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Look up daily-note and also search for capturing notes about a person. Which of those two paths has the directory basename person-notes: the lookup, or the search?</question>
+    <answer>search</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Search for creating a calendar event with limit 1 and offset 1. What is the name of the only result on that page?</question>
+    <answer>calendar</answer>
+  </qa_pair>
+</evaluation>

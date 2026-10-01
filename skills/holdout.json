@@ -1,0 +1,18 @@
+[
+  {
+    "query": "refresh the daily note",
+    "skill": "daily-note"
+  },
+  {
+    "query": "create a calendar event",
+    "skill": "calendar-event"
+  },
+  {
+    "query": "purple zircon teapot",
+    "skill": null
+  },
+  {
+    "query": "look up the missing widget procedure",
+    "skill": "missing-skill"
+  }
+]

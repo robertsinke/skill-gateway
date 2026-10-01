@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "skill-gateway",
+  "version": "0.2.0",
+  "description": "Search and read a private local skill library through repeatable workflows.",
+  "keywords": ["skills", "routing", "local"],
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "interface": {
+        "displayName": "Skill Gateway",
+        "shortDescription": "Search your private local skill library.",
+        "longDescription": "Search, select, and read skills from a private local library without publishing the library.",
+        "category": "Productivity",
+        "capabilities": ["Read"],
+        "brandColor": "#6E56CF"
+      }
+    }
+  }
+}

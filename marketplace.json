@@ -1,0 +1,20 @@
+{
+  "name": "skill-gateway-local",
+  "interface": {
+    "displayName": "Skill Gateway (Local)"
+  },
+  "plugins": [
+    {
+      "name": "skill-gateway",
+      "source": {
+        "source": "local",
+        "path": "./.agents/plugins/skill-gateway"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
