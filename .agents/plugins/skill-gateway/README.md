@@ -1,5 +1,7 @@
 # Skill Gateway private plugin
 
+For the Pi composer picker and Codex metadata-only skill pointers, see [the native skill picker setup](../../../docs/native-skill-slash-picker.md).
+
 1. Build the gateway from the repository root:
 
    ```sh

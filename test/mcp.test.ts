@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { lookupSkill, readSkill, searchLibrary } from "../src/mcp.ts";
+import { lookupSkill, readSkill, searchLibrary, suggestLibrary } from "../src/mcp.ts";
 
 function skill(root: string, directory: string, description: string): void {
   const folder = join(root, directory);
@@ -12,6 +12,20 @@ function skill(root: string, directory: string, description: string): void {
 }
 
 describe("mcp tools", () => {
+  it("returns only ranked metadata for an interactive picker", () => {
+    const root = mkdtempSync(join(tmpdir(), "mcp-picker-"));
+    skill(root, "calendar", "schedule a meeting");
+    skill(root, "inbox", "read mail threads");
+    const payload = suggestLibrary("schedule the meeting", { root });
+    assert.equal(payload.query, "schedule the meeting");
+    assert.equal(payload.total, 1);
+    assert.deepEqual(payload.results, [{ name: "calendar", description: "schedule a meeting" }]);
+    assert.equal("path" in payload.results[0]!, false);
+    assert.equal("score" in payload.results[0]!, false);
+    const browse = suggestLibrary("", { root });
+    assert.deepEqual(browse.results.map(({ name }) => name), ["calendar", "inbox"]);
+  });
+
   it("returns a markdown shortlist and a JSON page", () => {
     const root = mkdtempSync(join(tmpdir(), "mcp-"));
     skill(root, "calendar", "schedule a meeting");
@@ -69,6 +83,7 @@ describe("mcp tools", () => {
     const text = searchLibrary("anything", { root: missing });
     assert.match(text, /^Error:/);
     assert.match(text, /SKILL_GATEWAY_ROOT/);
+    assert.throws(() => suggestLibrary("anything", { root: missing }), /library root is missing/);
   });
 
   it("reads one unambiguous skill through the MCP surface", () => {

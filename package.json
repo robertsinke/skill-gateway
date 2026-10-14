@@ -9,6 +9,7 @@
     "build:ui": "vite build --ssr entry-server.ts --outDir ../../dist/ui-server --emptyOutDir && vite build && node scripts/render-page.js",
     "build": "npm run build:ui && tsc",
     "start:mcp:http": "node dist/http-mcp.js",
+    "sync:codex-pointers": "node --experimental-strip-types scripts/sync-codex-skill-pointers.ts",
     "test": "npm run build:ui && node --experimental-strip-types --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig src/ui/tsconfig.json"
   },

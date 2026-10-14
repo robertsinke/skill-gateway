@@ -3,8 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { basename, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { rank } from "./rank.ts";
-import { DEFAULT_ROOT, SearchError, defaultRoots, loadCatalog, loadMerged, lookup, lookupRoots } from "./search.ts";
+import { exactLookup, rank } from "./rank.ts";
+import { DEFAULT_ROOT, SearchError, defaultRoots, loadCatalog, loadMerged } from "./search.ts";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 20;
@@ -49,6 +49,28 @@ export function searchLibrary(
   }
 }
 
+export function suggestLibrary(query: string, options: { limit?: number; root?: string } = {}) {
+  const normalizedQuery = query.trim();
+  const limit = options.limit ?? DEFAULT_LIMIT;
+  if (!normalizedQuery) {
+    const catalog = loadConfiguredCatalog(options.root);
+    return {
+      query: normalizedQuery,
+      total: catalog.length,
+      results: catalog.slice(0, limit).map(({ document }) => ({
+        name: document.name,
+        description: document.description,
+      })),
+    };
+  }
+  const payload = page(normalizedQuery, limit, 0, options.root);
+  return {
+    query: normalizedQuery,
+    total: payload.total,
+    results: payload.results.map(({ name, description }) => ({ name, description })),
+  };
+}
+
 export function lookupSkill(name: string, options: { format?: "markdown" | "json"; root?: string } = {}): string {
   const format = options.format ?? "markdown";
   try {
@@ -89,7 +111,8 @@ export function readSkill(name: string, options: { format?: "markdown" | "json";
 }
 
 function page(query: string, limit: number, offset: number, root?: string): Page {
-  const documents = (root ? loadCatalog(root) : loadMerged(defaultRoots())).map((skill) => skill.document);
+  const catalog = loadConfiguredCatalog(root);
+  const documents = catalog.map((skill) => skill.document);
   const hits = rank(query, documents, Math.max(documents.length, 1));
   const slice = hits.slice(offset, offset + limit);
   const next = offset + slice.length;
@@ -110,7 +133,23 @@ function page(query: string, limit: number, offset: number, root?: string): Page
 }
 
 function find(name: string, root?: string): Result[] {
-  return root ? lookup(root, name) : lookupRoots(defaultRoots(), name);
+  const found = exactLookup(name, loadConfiguredCatalog(root).map((skill) => skill.document));
+  return found ? [{ name: found.name, path: found.path, description: found.description, score: 1 }] : [];
+}
+
+function configuredRoots(root?: string): string[] {
+  const override = (process.env.SKILL_GATEWAY_ROOT ?? "").trim();
+  if (root) return [root];
+  if (override) return [override];
+  return defaultRoots();
+}
+
+function loadConfiguredCatalog(root?: string) {
+  const roots = configuredRoots(root);
+  if (root || (process.env.SKILL_GATEWAY_ROOT ?? "").trim()) return loadCatalog(roots[0]!);
+  const catalog = loadMerged(roots);
+  if (catalog.length === 0) loadCatalog(roots[0]!);
+  return catalog;
 }
 
 function formatResults(payload: Page, format: "markdown" | "json", heading: string): string {
@@ -185,6 +224,30 @@ export function createServer(): McpServer {
           total: payload.total,
           results: payload.results,
         },
+      };
+    },
+  );
+  server.registerTool(
+    "skills_suggest_library",
+    {
+      title: "Suggest library skills",
+      description: "Return ranked skill names and descriptions for an interactive picker; never returns paths or skill bodies.",
+      inputSchema: {
+        query: z.string().max(4000),
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      },
+      outputSchema: {
+        query: z.string(),
+        total: z.number().int(),
+        results: z.array(z.object({ name: z.string(), description: z.string() })),
+      },
+      annotations: { ...readOnly, title: "Suggest library skills" },
+    },
+    async ({ query, limit }) => {
+      const payload = suggestLibrary(query, { limit });
+      return {
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+        structuredContent: payload,
       };
     },
   );
