@@ -12,6 +12,15 @@ function skill(root: string, directory: string, description: string): void {
 }
 
 describe("mcp tools", () => {
+  it("returns one exact-name result ahead of ranked metadata", () => {
+    const root = mkdtempSync(join(tmpdir(), "mcp-picker-"));
+    skill(root, "calendar", "schedule a meeting");
+    skill(root, "calendar-helper", "calendar notes and events");
+    const payload = suggestLibrary("calendar", { root });
+    assert.equal(payload.total, 1);
+    assert.deepEqual(payload.results, [{ name: "calendar", description: "schedule a meeting" }]);
+  });
+
   it("returns only ranked metadata for an interactive picker", () => {
     const root = mkdtempSync(join(tmpdir(), "mcp-picker-"));
     skill(root, "calendar", "schedule a meeting");

@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
+import { skillReadPrompt } from "../src/picker-contract.ts";
 
 type SuggestionPayload = {
   results: { name: string; description: string }[];
@@ -60,37 +60,45 @@ export default function (pi: ExtensionAPI): void {
     void getClient().catch(showFailure);
   });
 
-  pi.registerCommand("library", {
-    description: "Find and read a private library skill",
-    getArgumentCompletions: async (argumentPrefix) => {
-      const query = argumentPrefix.trim();
+  pi.registerShortcut("\\", {
+    description: "Search private library skills",
+    handler: async (ctx) => {
+      const query = (await ctx.ui.input("Search private skill library", "Skill name or description"))?.trim();
+      if (!query) return;
       if (query.length > 4_000) {
-        showFailure(new Error("search query exceeds 4000 characters"));
-        return null;
+        ctx.ui.notify("Search queries must be 4000 characters or fewer.", "error");
+        return;
       }
+      const submit = (name: string): void => {
+        if (name.length > 200) {
+          ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
+          return;
+        }
+        pi.sendUserMessage(skillReadPrompt(name));
+      };
       try {
         const client = await getClient();
         const result = await client.callTool({
           name: "skills_suggest_library",
           arguments: { query, limit: 20 },
         });
-        return skillCompletions(parseSuggestions(result).results);
+        const suggestions = parseSuggestions(result).results;
+        const exact = suggestions.find(({ name }) => name.toLowerCase() === query.toLowerCase());
+        if (exact) {
+          submit(exact.name);
+          return;
+        }
+        if (suggestions.length === 0) {
+          ctx.ui.notify("No matching private skills found.", "warning");
+          return;
+        }
+        const options = suggestions.map(({ name, description }) => `${name} — ${description}`.replace(/[\u0000-\u001f\u007f-\u009f]/g, " "));
+        const choice = await ctx.ui.select("Select a private library skill", options);
+        const selected = suggestions[options.indexOf(choice ?? "")];
+        if (selected) submit(selected.name);
       } catch (error) {
-        showFailure(error);
-        return null;
+        ctx.ui.notify(failureMessage(error), "error");
       }
-    },
-    handler: async (args, ctx) => {
-      const name = args.trim();
-      if (!name) {
-        ctx.ui.notify("Usage: /library <library skill name>", "warning");
-        return;
-      }
-      if (name.length > 200) {
-        ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
-        return;
-      }
-      pi.sendUserMessage(skillReadPrompt(name));
     },
   });
 }

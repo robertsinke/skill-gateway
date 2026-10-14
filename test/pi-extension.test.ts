@@ -1,40 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import extension from "../extensions/skill-gateway.ts";
+import { skillReadPrompt } from "../src/picker-contract.ts";
 
 describe("Pi skill picker extension", () => {
-  it("registers the gateway MCP server and native /library argument completion", () => {
-    const commands = new Map<string, { description?: string; getArgumentCompletions?: (prefix: string) => Promise<unknown>; handler: (args: string, ctx: never) => Promise<void> }>();
+  it("registers the gateway MCP server and a private-library keyboard shortcut", () => {
+    const shortcuts = new Map<string, { description?: string }>();
     const servers: string[] = [];
     extension({
       registerMcpServer(name: string) { servers.push(name); },
-      registerCommand(name: string, options: { description?: string; getArgumentCompletions?: (prefix: string) => Promise<unknown>; handler: (args: string, ctx: never) => Promise<void> }) {
-        commands.set(name, options);
-      },
+      registerShortcut(name: string, options: { description?: string }) { shortcuts.set(name, options); },
       on() {},
     } as never);
 
     assert.deepEqual(servers, ["skill_gateway_picker"]);
-    const command = commands.get("library");
-    assert.ok(command?.getArgumentCompletions);
-    assert.match(command.description ?? "", /private library skill/);
+    assert.match(shortcuts.get("\\")?.description ?? "", /private library skills/);
   });
 
-  it("submits an exact-name read instruction immediately without embedding a path", async () => {
-    let submitted = "";
-    const command = new Map<string, { handler: (args: string, ctx: never) => Promise<void> }>();
-    extension({
-      registerMcpServer() {},
-      registerCommand(name: string, options: { handler: (args: string, ctx: never) => Promise<void> }) { command.set(name, options); },
-      sendUserMessage(message: string) { submitted = message; },
-      on() {},
-    } as never);
-
-    await command.get("library")!.handler("kw:plan", {
-      ui: { notify() {} },
-    } as never);
-    assert.match(submitted, /skills_read_skill/);
-    assert.match(submitted, /"kw:plan"/);
-    assert.doesNotMatch(submitted, /\/Users\/|\.local\/share/);
+  it("builds an exact-name read instruction without embedding a path", () => {
+    const prompt = skillReadPrompt("kw:plan");
+    assert.match(prompt, /skills_read_skill/);
+    assert.match(prompt, /"kw:plan"/);
+    assert.doesNotMatch(prompt, /\/Users\/|\.local\/share/);
   });
 });

@@ -63,7 +63,16 @@ export function suggestLibrary(query: string, options: { limit?: number; root?: 
       })),
     };
   }
-  const payload = page(normalizedQuery, limit, 0, options.root);
+  const catalog = loadConfiguredCatalog(options.root);
+  const exact = exactLookup(normalizedQuery, catalog.map(({ document }) => document));
+  if (exact) {
+    return {
+      query: normalizedQuery,
+      total: 1,
+      results: [{ name: exact.name, description: exact.description }],
+    };
+  }
+  const payload = page(normalizedQuery, limit, 0, options.root, catalog);
   return {
     query: normalizedQuery,
     total: payload.total,
@@ -110,8 +119,13 @@ export function readSkill(name: string, options: { format?: "markdown" | "json";
   }
 }
 
-function page(query: string, limit: number, offset: number, root?: string): Page {
-  const catalog = loadConfiguredCatalog(root);
+function page(
+  query: string,
+  limit: number,
+  offset: number,
+  root?: string,
+  catalog = loadConfiguredCatalog(root),
+): Page {
   const documents = catalog.map((skill) => skill.document);
   const hits = rank(query, documents, Math.max(documents.length, 1));
   const slice = hits.slice(offset, offset + limit);
