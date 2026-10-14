@@ -72,12 +72,45 @@ export function suggestLibrary(query: string, options: { limit?: number; root?: 
       results: [{ name: exact.name, description: exact.description }],
     };
   }
-  const payload = page(normalizedQuery, limit, 0, options.root, catalog);
-  return {
-    query: normalizedQuery,
-    total: payload.total,
-    results: payload.results.map(({ name, description }) => ({ name, description })),
-  };
+  const prefix = normalizedQuery.toLowerCase().replace(/\*+$/, "");
+  const isPrefixQuery = /^[a-z0-9]+$/.test(prefix);
+  const startsWithPrefix = (text: string): boolean =>
+    isPrefixQuery && (text.normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase().match(/[a-z0-9]+/g) ?? [])
+      .some((token) => token.startsWith(prefix));
+  const named = isPrefixQuery ? catalog.filter(({ document }) => startsWithPrefix(document.name)) : [];
+  const ranked = page(normalizedQuery, Math.max(catalog.length, limit), 0, options.root, catalog);
+
+  if (named.length > 0) {
+    const namedResults = named.map(({ document }) => ({ name: document.name, description: document.description }));
+    const namedNames = new Set(namedResults.map(({ name }) => name));
+    const rankedResults = ranked.results
+      .filter(({ name }) => !namedNames.has(name))
+      .map(({ name, description }) => ({ name, description }));
+    const results = [...namedResults, ...rankedResults];
+    return { query: normalizedQuery, total: results.length, results: results.slice(0, limit) };
+  }
+
+  if (ranked.results.length > 0) {
+    return {
+      query: normalizedQuery,
+      total: ranked.total,
+      results: ranked.results.slice(0, limit).map(({ name, description }) => ({ name, description })),
+    };
+  }
+
+  if (isPrefixQuery) {
+    const described = catalog.filter(({ document }) => startsWithPrefix(document.description));
+    return {
+      query: normalizedQuery,
+      total: described.length,
+      results: described.slice(0, limit).map(({ document }) => ({
+        name: document.name,
+        description: document.description,
+      })),
+    };
+  }
+
+  return { query: normalizedQuery, total: 0, results: [] };
 }
 
 export function lookupSkill(name: string, options: { format?: "markdown" | "json"; root?: string } = {}): string {

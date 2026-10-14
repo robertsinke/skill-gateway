@@ -10,7 +10,7 @@ Load the extension with the Pi version that exposes `getArgumentCompletions`:
 pi -e ./extensions/skill-gateway.ts
 ```
 
-The extension registers the bare backslash key (`\`) as a shortcut to search private-library skills without colliding with Pi's built-in `/skill:<name>` commands for locally loaded skills. Enter a skill name or search query; an exact name selects that skill immediately, while partial names and free-text queries show ranked metadata for selection. Pi sends a short instruction to read the selected skill through `skills_read_skill`; the body is not inserted into the composer. If the service cannot be reached, Pi shows an error.
+Type `\` in the composer to show ranked suggestions, then keep typing to filter them in real time. Choose a suggestion and submit the `\skill-name` completion; the extension transforms that exact identifier into an instruction to call `skills_read_skill`. Suggestions expose only names and descriptions; skill bodies never appear in autocomplete or the composer. The panel reserves a fixed number of rows so the composer does not jump as match counts change. If the service cannot be reached, Pi shows an error.
 
 The extension uses `SKILL_GATEWAY_MCP_URL` when set, otherwise `http://127.0.0.1:8742/mcp`.
 

@@ -1,13 +1,16 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { skillReadPrompt } from "../src/picker-contract.ts";
+import { skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
 
 type SuggestionPayload = {
   results: { name: string; description: string }[];
 };
 
 const endpoint = process.env.SKILL_GATEWAY_MCP_URL || "http://127.0.0.1:8742/mcp";
+const controlCharacters = /[\u0000-\u001f\u007f-\u009f]/g;
+const autocompleteItemCount = 20;
+const nonSelectablePrefix = "__skill_gateway_padding__";
 
 function parseSuggestions(result: unknown): SuggestionPayload {
   if (!result || typeof result !== "object") throw new Error("gateway returned an invalid suggestion response");
@@ -29,6 +32,17 @@ function parseSuggestions(result: unknown): SuggestionPayload {
 function failureMessage(error: unknown): string {
   const details = error instanceof Error ? error.message : String(error);
   return `Skill Gateway unavailable at ${endpoint}: ${details}`;
+}
+
+export function fixedHeightAutocompleteItems(items: { value: string; label: string; description?: string }[]) {
+  const result = items.slice(0, autocompleteItemCount);
+  if (result.length === 0) {
+    result.push({ value: `${nonSelectablePrefix}empty`, label: "No matching skills" });
+  }
+  while (result.length < autocompleteItemCount) {
+    result.push({ value: `${nonSelectablePrefix}${result.length}`, label: " " });
+  }
+  return result;
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -54,51 +68,103 @@ export default function (pi: ExtensionAPI): void {
     notify?.(failureMessage(error));
   };
 
+  const suggest = async (query: string, signal?: AbortSignal): Promise<SuggestionPayload["results"]> => {
+    const client = await getClient();
+    const result = await client.callTool({
+      name: "skills_suggest_library",
+      arguments: { query, limit: autocompleteItemCount },
+    }, undefined, { signal, timeout: 5_000 });
+    return parseSuggestions(result).results;
+  };
+
   pi.on("session_start", (_event, ctx) => {
     failureShown = false;
     notify = ctx.hasUI ? (message) => ctx.ui.notify(message, "error") : undefined;
+    if (ctx.hasUI) {
+      ctx.ui.addAutocompleteProvider((current) => ({
+        triggerCharacters: [...new Set([...(current.triggerCharacters ?? []), "\\"])],
+        async getSuggestions(lines, cursorLine, cursorCol, options) {
+          const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
+          const start = beforeCursor.search(/\S/);
+          if (start < 0 || beforeCursor[start] !== "\\") {
+            return current.getSuggestions(lines, cursorLine, cursorCol, options);
+          }
+
+          const prefix = beforeCursor.slice(start);
+          const query = prefix.slice(1).trim();
+          if (query.length > 4_000) return null;
+
+          try {
+            const suggestions = await suggest(query, options.signal);
+            if (options.signal.aborted) return null;
+            const items = skillCompletions(suggestions).map((item) => ({
+              ...item,
+              value: `\\${item.value}`,
+              label: item.label.replace(controlCharacters, " "),
+              description: item.description?.replace(controlCharacters, " "),
+            }));
+            return { items: fixedHeightAutocompleteItems(items), prefix };
+          } catch (error) {
+            if (!options.signal.aborted) ctx.ui.notify(failureMessage(error), "error");
+            return null;
+          }
+        },
+        applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+          if (item.value.startsWith(nonSelectablePrefix)) {
+            return { lines, cursorLine, cursorCol };
+          }
+          if (!prefix.startsWith("\\")) {
+            return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+          }
+          const line = lines[cursorLine] ?? "";
+          const prefixStart = cursorCol - prefix.length;
+          const newLines = [...lines];
+          newLines[cursorLine] = `${line.slice(0, prefixStart)}${item.value}${line.slice(cursorCol)}`;
+          return {
+            lines: newLines,
+            cursorLine,
+            cursorCol: prefixStart + item.value.length,
+          };
+        },
+        shouldTriggerFileCompletion: current.shouldTriggerFileCompletion
+          ? (lines, cursorLine, cursorCol) => current.shouldTriggerFileCompletion!(lines, cursorLine, cursorCol)
+          : undefined,
+      }));
+    }
     void getClient().catch(showFailure);
   });
 
-  pi.registerShortcut("\\", {
-    description: "Search private library skills",
-    handler: async (ctx) => {
-      const query = (await ctx.ui.input("Search private skill library", "Skill name or description"))?.trim();
-      if (!query) return;
-      if (query.length > 4_000) {
-        ctx.ui.notify("Search queries must be 4000 characters or fewer.", "error");
-        return;
+  pi.on("input", async (event, ctx) => {
+    const text = event.text.trimStart();
+    if (!text.startsWith("\\")) return { action: "continue" };
+
+    const query = text.slice(1).trim();
+    if (!query) {
+      if (ctx.hasUI) ctx.ui.notify("Type after \\\\ and choose a skill suggestion.", "warning");
+      return { action: "handled" };
+    }
+    if (query.length > 4_000) {
+      if (ctx.hasUI) ctx.ui.notify("Search queries must be 4000 characters or fewer.", "error");
+      return { action: "handled" };
+    }
+
+    try {
+      const suggestions = await suggest(query);
+      const exact = suggestions.find(({ name }) => name.toLowerCase() === query.toLowerCase());
+      if (!exact) {
+        if (ctx.hasUI) {
+          ctx.ui.notify(suggestions.length ? "Choose a matching skill from the inline suggestions." : "No matching private skills found.", "warning");
+        }
+        return { action: "handled" };
       }
-      const submit = (name: string): void => {
-        if (name.length > 200) {
-          ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
-          return;
-        }
-        pi.sendUserMessage(skillReadPrompt(name));
-      };
-      try {
-        const client = await getClient();
-        const result = await client.callTool({
-          name: "skills_suggest_library",
-          arguments: { query, limit: 20 },
-        });
-        const suggestions = parseSuggestions(result).results;
-        const exact = suggestions.find(({ name }) => name.toLowerCase() === query.toLowerCase());
-        if (exact) {
-          submit(exact.name);
-          return;
-        }
-        if (suggestions.length === 0) {
-          ctx.ui.notify("No matching private skills found.", "warning");
-          return;
-        }
-        const options = suggestions.map(({ name, description }) => `${name} — ${description}`.replace(/[\u0000-\u001f\u007f-\u009f]/g, " "));
-        const choice = await ctx.ui.select("Select a private library skill", options);
-        const selected = suggestions[options.indexOf(choice ?? "")];
-        if (selected) submit(selected.name);
-      } catch (error) {
-        ctx.ui.notify(failureMessage(error), "error");
+      if (exact.name.length > 200) {
+        if (ctx.hasUI) ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
+        return { action: "handled" };
       }
-    },
+      return { action: "transform", text: skillReadPrompt(exact.name), images: event.images };
+    } catch (error) {
+      showFailure(error);
+      return { action: "handled" };
+    }
   });
 }
