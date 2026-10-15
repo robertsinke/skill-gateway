@@ -20,6 +20,7 @@ export function findLatestGateEvent(contents: string, sessionId: string, promptS
       const event = asRecord(JSON.parse(lines[index]!));
       if (
         event?.event_type === "gate_decision" &&
+        event.gate_status !== "not_evaluated" &&
         event.session_id === sessionId &&
         event.prompt_sha256 === promptSha256
       ) return event;

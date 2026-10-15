@@ -38,6 +38,12 @@ describe("Pi gate telemetry", () => {
     assert.equal(findLatestGateEvent(contents, "session-1", "missing"), null);
   });
 
+  it("does not let synthetic not-evaluated rows mask a real gate for the same prompt", () => {
+    const queued = { ...current, turn_id: "queued-turn", gate_status: "not_evaluated", turn_id_source: "pi_queued_input" };
+    assert.deepEqual(findLatestGateEvent([JSON.stringify(current), JSON.stringify(queued)].join("\n"), "session-1", "current-hash"), current);
+    assert.equal(findLatestGateEvent(JSON.stringify(queued), "session-1", "current-hash"), null);
+  });
+
   it("shows Jev's shortlist-level score, retrieval ranks, injection count, and reported usage", () => {
     const status = formatGateFooter(current);
     assert.match(status, /reject/);
