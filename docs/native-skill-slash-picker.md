@@ -10,7 +10,7 @@ Load the extension with the Pi version that exposes `getArgumentCompletions`:
 pi -e ./extensions/skill-gateway.ts
 ```
 
-Type `\\` in the composer to show ranked suggestions, then keep typing to filter them in real time. Choose a suggestion and submit the `\\skill-name` completion; the extension transforms that exact identifier into an instruction to call `skills_read_skill`. Suggestions expose only names and descriptions; skill bodies never appear in autocomplete or the composer. The panel reserves a fixed number of rows so the composer does not jump as match counts change. If the service cannot be reached, Pi shows an error.
+Type `\` in the composer to open ranked suggestions and filter as you type. Select a skill; Pi inserts a trailing space so you can add a request, for example `\archify show the new architecture`. On submit, the extension resolves the exact skill name, preserves the following request, and asks the model to read the skill through `skills_read_skill`. Suggestions expose only names and descriptions; skill bodies are fetched only after selection. The panel reserves a fixed number of rows so the composer does not jump as match counts change. If the service cannot be reached, Pi shows an error.
 
 The extension uses `SKILL_GATEWAY_MCP_URL` when set, otherwise `http://127.0.0.1:8742/mcp`.
 
