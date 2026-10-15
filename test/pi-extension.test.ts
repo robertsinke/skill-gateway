@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import extension, { fixedHeightAutocompleteItems } from "../extensions/skill-gateway.ts";
+import extension, { applyBackslashCompletion, fixedHeightAutocompleteItems } from "../extensions/skill-gateway.ts";
 import { skillReadPrompt } from "../src/picker-contract.ts";
 
 describe("Pi skill picker extension", () => {
@@ -14,6 +14,17 @@ describe("Pi skill picker extension", () => {
 
     assert.deepEqual(servers, ["skill_gateway_picker"]);
     assert.deepEqual(events.sort(), ["input", "session_start"]);
+  });
+
+  it("adds one space after a selected skill and preserves existing suffix text", () => {
+    const selected = applyBackslashCompletion(["\\arc"], 0, 4, { value: "\\archify" }, "\\arc");
+    assert.deepEqual(selected, { lines: ["\\archify "], cursorLine: 0, cursorCol: 9 });
+
+    const existingSpace = applyBackslashCompletion(["\\arc more"], 0, 4, { value: "\\archify" }, "\\arc");
+    assert.deepEqual(existingSpace, { lines: ["\\archify more"], cursorLine: 0, cursorCol: 9 });
+
+    const adjacentSuffix = applyBackslashCompletion(["\\arcmore"], 0, 4, { value: "\\archify" }, "\\arc");
+    assert.deepEqual(adjacentSuffix, { lines: ["\\archify more"], cursorLine: 0, cursorCol: 9 });
   });
 
   it("keeps the autocomplete panel at a fixed item count", () => {

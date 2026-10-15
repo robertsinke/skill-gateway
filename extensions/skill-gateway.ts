@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
+import { parseSkillSelection, skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
 
 type SuggestionPayload = {
   results: { name: string; description: string }[];
@@ -43,6 +43,27 @@ export function fixedHeightAutocompleteItems(items: { value: string; label: stri
     result.push({ value: `${nonSelectablePrefix}${result.length}`, label: " " });
   }
   return result;
+}
+
+export function applyBackslashCompletion(
+  lines: string[],
+  cursorLine: number,
+  cursorCol: number,
+  item: { value: string },
+  prefix: string,
+) {
+  const line = lines[cursorLine] ?? "";
+  const prefixStart = cursorCol - prefix.length;
+  const suffix = line.slice(cursorCol);
+  const hasTrailingWhitespace = /^\s/.test(suffix);
+  const insertion = `${item.value}${hasTrailingWhitespace ? "" : " "}`;
+  const newLines = [...lines];
+  newLines[cursorLine] = `${line.slice(0, prefixStart)}${insertion}${suffix}`;
+  return {
+    lines: newLines,
+    cursorLine,
+    cursorCol: prefixStart + insertion.length + (hasTrailingWhitespace ? 1 : 0),
+  };
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -116,15 +137,7 @@ export default function (pi: ExtensionAPI): void {
           if (!prefix.startsWith("\\")) {
             return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
           }
-          const line = lines[cursorLine] ?? "";
-          const prefixStart = cursorCol - prefix.length;
-          const newLines = [...lines];
-          newLines[cursorLine] = `${line.slice(0, prefixStart)}${item.value}${line.slice(cursorCol)}`;
-          return {
-            lines: newLines,
-            cursorLine,
-            cursorCol: prefixStart + item.value.length,
-          };
+          return applyBackslashCompletion(lines, cursorLine, cursorCol, item, prefix);
         },
         shouldTriggerFileCompletion: current.shouldTriggerFileCompletion
           ? (lines, cursorLine, cursorCol) => current.shouldTriggerFileCompletion!(lines, cursorLine, cursorCol)
@@ -136,15 +149,16 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("input", async (event, ctx) => {
     const text = event.text.trimStart();
-    if (!text.startsWith("\\")) return { action: "continue" };
+    const selection = parseSkillSelection(text);
+    if (!selection) return { action: "continue" };
 
-    const query = text.slice(1).trim();
+    const { name: query, request } = selection;
     if (!query) {
       if (ctx.hasUI) ctx.ui.notify("Type after \\\\ and choose a skill suggestion.", "warning");
       return { action: "handled" };
     }
-    if (query.length > 4_000) {
-      if (ctx.hasUI) ctx.ui.notify("Search queries must be 4000 characters or fewer.", "error");
+    if (text.length > 4_000) {
+      if (ctx.hasUI) ctx.ui.notify("Skill picker input must be 4000 characters or fewer.", "error");
       return { action: "handled" };
     }
 
@@ -161,7 +175,7 @@ export default function (pi: ExtensionAPI): void {
         if (ctx.hasUI) ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
         return { action: "handled" };
       }
-      return { action: "transform", text: skillReadPrompt(exact.name), images: event.images };
+      return { action: "transform", text: skillReadPrompt(exact.name, request), images: event.images };
     } catch (error) {
       showFailure(error);
       return { action: "handled" };
