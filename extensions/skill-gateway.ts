@@ -1,14 +1,17 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { randomUUID } from "node:crypto";
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { defaultRoots, search, searchRoots } from "../src/search.ts";
-import { buildSkillGateRequest, type GateCandidate } from "../src/skill-gate.ts";
-import { DEFAULT_USAGE_EVENTS, promptDigest } from "../src/usage-events.ts";
+import { buildSkillGateRequest, SKILL_GATE_THRESHOLD, type GateCandidate } from "../src/skill-gate.ts";
+import { record, userId } from "../src/query-log.ts";
+import { verifiedSkillNames } from "../src/skill-load-hook.ts";
+import { appendUsageEvent, DEFAULT_USAGE_EVENTS, promptDigest } from "../src/usage-events.ts";
 import { findLatestGateEvent, formatGateDetails, formatGateFooter } from "../src/pi-gate-telemetry.ts";
 import { createFeedbackWidget } from "../src/pi-feedback-widget.ts";
 import { searchSkillUsageTurns, updateSkillUsageFeedback } from "../src/skill-usage-feedback.ts";
-import { parseSkillSelection, skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
+import { findActiveSkillCompletion, parseSkillSelection, replaceSkillSelection, skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
 
 type SuggestionPayload = {
   results: { name: string; description: string }[];
@@ -94,6 +97,66 @@ function recordedCandidateNames(event: Record<string, unknown>): string[] {
 }
 
 type FeedbackIdentity = { user_id: string | null; session_id: string; turn_id: string };
+type PendingQueuedInput = {
+  prompt: string;
+  deliveredText: string;
+  behavior: "steer" | "followUp";
+  identity: FeedbackIdentity;
+};
+type PendingSkillRead = {
+  identity: FeedbackIdentity;
+  turn_id_source: string;
+  tool_name: string;
+  skill_names: string[];
+};
+
+function userMessageText(message: unknown): string {
+  if (!message || typeof message !== "object" || !("content" in message)) return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((item) => item && typeof item === "object" && "type" in item && item.type === "text"
+    && "text" in item && typeof item.text === "string" ? [item.text] : []).join("");
+}
+
+function takeQueuedInput(queue: PendingQueuedInput[], text: string): PendingQueuedInput | undefined {
+  const matching = queue.map((item, index) => ({ item, index })).filter(({ item }) => item.deliveredText === text);
+  const selected = matching.find(({ item }) => item.behavior === "steer") ?? matching[0];
+  return selected ? queue.splice(selected.index, 1)[0] : undefined;
+}
+
+function queuedPromptDebug(prompt: string, identity: FeedbackIdentity): GateDebug {
+  const reason = "queued_prompt_not_gated";
+  const event: Record<string, unknown> = {
+    event_type: "gate_decision",
+    user_id: identity.user_id,
+    session_id: identity.session_id,
+    turn_id: identity.turn_id,
+    turn_id_source: "pi_queued_input",
+    platform: "pi",
+    prompt_sha256: promptDigest(prompt),
+    candidate_names: [],
+    candidate_rankings: [],
+    gate_status: "not_evaluated",
+    gate_model: null,
+    probability: null,
+    threshold: SKILL_GATE_THRESHOLD,
+    injected_skill_names: [],
+    request_attempted: false,
+    input_tokens_source: "not_sent",
+    jev_list_cost_usd: null,
+    cost_basis: "not_sent",
+    latency_ms: 0,
+    reason,
+  };
+  return { prompt, promptSha256: promptDigest(prompt), candidates: [], event, candidatesMatch: true };
+}
+
+function recordQueuedPrompt(prompt: string, identity: FeedbackIdentity, event: Record<string, unknown>): void {
+  const audit = { status: "not_evaluated" as const, model: null, probability: null, candidates: [], reason: "queued_prompt_not_gated" };
+  record({ ...identity, agent: "pi" }, prompt, [], process.env, audit);
+  appendUsageEvent(event);
+}
 
 function feedbackIdentity(event: Record<string, unknown> | undefined): FeedbackIdentity | null {
   if (!event || typeof event.session_id !== "string" || !event.session_id.trim() || typeof event.turn_id !== "string" || !event.turn_id.trim()) return null;
@@ -234,7 +297,7 @@ function showGateDetails(pi: ExtensionAPI, getDebug: () => GateDebug | undefined
         return;
       }
       const event = debug.event;
-      const body = debug.candidatesMatch && event.gate_status !== "no_candidates" && event.gate_status !== "bypassed"
+      const body = debug.candidatesMatch && event.gate_status !== "no_candidates" && event.gate_status !== "bypassed" && event.gate_status !== "not_evaluated"
         ? buildSkillGateRequest(debug.prompt, debug.candidates)
         : null;
       const details = formatGateDetails(event, body, Boolean(debug.candidatesMatch));
@@ -296,22 +359,35 @@ export function applyBackslashCompletion(
   prefix: string,
 ) {
   const line = lines[cursorLine] ?? "";
-  const prefixStart = cursorCol - prefix.length;
-  const suffix = line.slice(cursorCol);
+  const active = findActiveSkillCompletion(line, cursorCol);
+  if (!active || active.prefix !== prefix) return { lines, cursorLine, cursorCol };
+  const suffix = line.slice(active.replaceEnd);
   const hasTrailingWhitespace = /^\s/.test(suffix);
   const insertion = `${item.value}${hasTrailingWhitespace ? "" : " "}`;
   const newLines = [...lines];
-  newLines[cursorLine] = `${line.slice(0, prefixStart)}${insertion}${suffix}`;
+  newLines[cursorLine] = `${line.slice(0, active.start)}${insertion}${suffix}`;
   return {
     lines: newLines,
     cursorLine,
-    cursorCol: prefixStart + insertion.length + (hasTrailingWhitespace ? 1 : 0),
+    cursorCol: active.start + insertion.length + (hasTrailingWhitespace ? 1 : 0),
   };
 }
 
 export default function (pi: ExtensionAPI): void {
   pi.registerMcpServer("skill_gateway", { url: endpoint, timeout: 5_000 });
   let gateDebug: GateDebug | undefined;
+  const pendingQueuedInputs: PendingQueuedInput[] = [];
+  const pendingSkillReads = new Map<string, PendingSkillRead>();
+  const queueInput = (prompt: string, deliveredText: string, behavior: "steer" | "followUp", ctx: ExtensionContext): void => {
+    const session_id = ctx.sessionManager.getSessionId();
+    if (!session_id || !prompt.trim()) return;
+    pendingQueuedInputs.push({
+      prompt: prompt.trim(),
+      deliveredText,
+      behavior,
+      identity: { user_id: userId({}, process.env), session_id, turn_id: randomUUID() },
+    });
+  };
   showSkillFeedbackCommand(pi, () => gateDebug);
 
   pi.on("before_agent_start", (event: { prompt?: string }, ctx) => {
@@ -352,9 +428,55 @@ export default function (pi: ExtensionAPI): void {
     showFeedbackWidget(ctx, gateDebug, true);
   });
 
+  pi.on("message_start", (event, ctx) => {
+    if (event.message.role !== "user") return;
+    const queued = takeQueuedInput(pendingQueuedInputs, userMessageText(event.message));
+    if (!queued) return;
+    gateDebug = queuedPromptDebug(queued.prompt, queued.identity);
+    try {
+      recordQueuedPrompt(queued.prompt, queued.identity, gateDebug.event!);
+    } catch (error) {
+      if (ctx.hasUI) ctx.ui.notify(`Could not record queued prompt feedback: ${error instanceof Error ? error.message : String(error)}`, "error");
+    }
+    if (ctx.hasUI && ctx.mode === "tui") {
+      ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(gateDebug.event!));
+      showFeedbackWidget(ctx, gateDebug, true);
+    }
+  });
+
+  pi.on("tool_execution_start", (event) => {
+    const identity = feedbackIdentity(gateDebug?.event);
+    if (!identity) return;
+    const skill_names = verifiedSkillNames(event.toolName, event.args);
+    if (!skill_names.length) return;
+    const eventTurnIdSource = typeof gateDebug?.event?.turn_id_source === "string" ? gateDebug.event.turn_id_source : "pi_extension_event";
+    pendingSkillReads.set(event.toolCallId, { identity, turn_id_source: eventTurnIdSource, tool_name: event.toolName, skill_names });
+  });
+
   pi.on("tool_execution_end", (event, ctx) => {
-    if (!gateDebug?.event || !isSkillReadTool(event.toolName, event.args)) return;
-    showFeedbackWidget(ctx, gateDebug, true);
+    const read = pendingSkillReads.get(event.toolCallId);
+    pendingSkillReads.delete(event.toolCallId);
+    if (read && !event.isError) {
+      for (const skill_name of read.skill_names) {
+        try {
+          appendUsageEvent({
+            event_type: "skill_load",
+            ...read.identity,
+            turn_id_source: read.turn_id_source,
+            platform: "pi",
+            tool_name: read.tool_name,
+            tool_call_id: event.toolCallId,
+            skill_name,
+            source: "pi_extension_tool_execution",
+          });
+        } catch {
+          // A failed telemetry write must not affect the completed tool call.
+        }
+      }
+    }
+    if (gateDebug?.event && (read || isSkillReadTool(event.toolName, undefined))) {
+      showFeedbackWidget(ctx, gateDebug, true);
+    }
   });
 
   showGateDetails(pi, () => gateDebug);
@@ -396,6 +518,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     failureShown = false;
     gateDebug = undefined;
+    pendingQueuedInputs.length = 0;
+    pendingSkillReads.clear();
     if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget("skill-gateway-feedback", undefined);
     if (ctx.hasUI) ctx.ui.setStatus("skill-gateway-gate", undefined);
     notify = ctx.hasUI ? (message) => ctx.ui.notify(message, "error") : undefined;
@@ -403,14 +527,11 @@ export default function (pi: ExtensionAPI): void {
       ctx.ui.addAutocompleteProvider((current) => ({
         triggerCharacters: [...new Set([...(current.triggerCharacters ?? []), "\\"])],
         async getSuggestions(lines, cursorLine, cursorCol, options) {
-          const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
-          const start = beforeCursor.search(/\S/);
-          if (start < 0 || beforeCursor[start] !== "\\") {
-            return current.getSuggestions(lines, cursorLine, cursorCol, options);
-          }
+          const active = findActiveSkillCompletion(lines[cursorLine] ?? "", cursorCol);
+          if (!active) return current.getSuggestions(lines, cursorLine, cursorCol, options);
 
-          const prefix = beforeCursor.slice(start);
-          const query = prefix.slice(1).trim();
+          const prefix = active.prefix;
+          const query = active.query.trim();
           if (query.length > 4_000) return null;
 
           try {
@@ -446,17 +567,26 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("input", async (event, ctx) => {
-    const text = event.text.trimStart();
+    const text = event.text;
+    const behavior = event.streamingBehavior;
     const selection = parseSkillSelection(text);
-    if (!selection) return { action: "continue" };
-
-    const { name: query, request } = selection;
-    if (!query) {
-      if (ctx.hasUI) ctx.ui.notify("Type after \\\\ and choose a skill suggestion.", "warning");
-      return { action: "handled" };
+    if (!selection) {
+      if (behavior) queueInput(text, text, behavior, ctx);
+      return { action: "continue" };
     }
-    if (text.length > 4_000) {
-      if (ctx.hasUI) ctx.ui.notify("Skill picker input must be 4000 characters or fewer.", "error");
+
+    const leadingSelection = text.slice(0, selection.start).trim().length === 0;
+    const { name: query } = selection;
+    if (!query) {
+      if (leadingSelection) {
+        if (ctx.hasUI) ctx.ui.notify("Type after \\\\ and choose a skill suggestion.", "warning");
+        return { action: "handled" };
+      }
+      if (behavior) queueInput(text, text, behavior, ctx);
+      return { action: "continue" };
+    }
+    if (query.length > 4_000) {
+      if (ctx.hasUI) ctx.ui.notify("Skill names must be 4000 characters or fewer.", "error");
       return { action: "handled" };
     }
 
@@ -467,13 +597,19 @@ export default function (pi: ExtensionAPI): void {
         if (ctx.hasUI) {
           ctx.ui.notify(suggestions.length ? "Choose a matching skill from the inline suggestions." : "No matching private skills found.", "warning");
         }
+        if (!leadingSelection) {
+          if (behavior) queueInput(text, text, behavior, ctx);
+          return { action: "continue" };
+        }
         return { action: "handled" };
       }
       if (exact.name.length > 200) {
         if (ctx.hasUI) ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
         return { action: "handled" };
       }
-      return { action: "transform", text: skillReadPrompt(exact.name, request), images: event.images };
+      const transformedText = replaceSkillSelection(text, selection, skillReadPrompt(exact.name));
+      if (behavior) queueInput(text, transformedText, behavior, ctx);
+      return { action: "transform", text: transformedText, images: event.images };
     } catch (error) {
       showFailure(error);
       return { action: "handled" };

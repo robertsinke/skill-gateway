@@ -53,9 +53,10 @@ export function formatGateFooter(event: RecordValue): string {
     : event.request_attempted === false ? "" : "cost n/a";
   const jevText = probability !== null
     ? `Jev ${probability.toFixed(2)}${threshold === null ? "" : `/${threshold.toFixed(2)}`}`
-    : status === "bypassed" ? "gate off"
-      : status === "no_candidates" ? "no Jev call"
-        : status === "search_error" ? "search error" : `Jev ${status}`;
+    : status === "not_evaluated" ? "gate not evaluated"
+      : status === "bypassed" ? "gate off"
+        : status === "no_candidates" ? "no Jev call"
+          : status === "search_error" ? "search error" : `Jev ${status}`;
   const topText = top.length ? ` · search: ${top.join(", ")}` : "";
   const costSuffix = costText ? ` · ${costText}` : "";
   return `SG ${status} · ${jevText} · ${candidateNames.length}→${injectedNames.length} · ${tokenText}${costSuffix}${topText}`;

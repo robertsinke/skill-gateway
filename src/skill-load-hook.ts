@@ -9,13 +9,9 @@ const SKILL_FILE = /(?:^|[\\/])(?:library|skills)[\\/]([A-Za-z0-9_.-]+)[\\/]SKIL
 
 type JsonRecord = Record<string, unknown>;
 
-export function handleSkillLoad(payload: unknown, env: NodeJS.ProcessEnv = process.env): number {
-  if (!isRecord(payload)) return 0;
-  const toolName = stringField(payload, ["tool_name", "toolName", "tool"]);
-  if (!toolName) return 0;
-  const toolInput = parseInput(payload.tool_input ?? payload.toolInput ?? payload.input ?? payload.arguments);
-  if (!toolInput) return 0;
-
+export function verifiedSkillNames(toolName: string, rawInput: unknown, env: NodeJS.ProcessEnv = process.env): string[] {
+  const toolInput = parseInput(rawInput);
+  if (!toolName || !toolInput) return [];
   const roots = configuredRoots(env);
   const skillNames = new Set<string>();
   if (isReadTool(toolName)) {
@@ -40,13 +36,23 @@ export function handleSkillLoad(payload: unknown, env: NodeJS.ProcessEnv = proce
       if (skill) skillNames.add(skill.name);
     }
   }
+  return [...skillNames];
+}
 
-  const names = [...skillNames];
+export function handleSkillLoad(payload: unknown, env: NodeJS.ProcessEnv = process.env): number {
+  if (!isRecord(payload)) return 0;
+  const toolName = stringField(payload, ["tool_name", "toolName", "tool"]);
+  if (!toolName) return 0;
+  const platform = stringField(payload, ["agent", "platform"]).toLowerCase();
+  // The Pi extension records reads against the user-message turn; the generic post-tool hook only knows the active run ID.
+  if (platform === "pi") return 0;
+  const rawInput = payload.tool_input ?? payload.toolInput ?? payload.input ?? payload.arguments;
+  const names = verifiedSkillNames(toolName, rawInput, env);
   if (names.length === 0) return 0;
   const turnId = stringField(payload, ["turn_id", "turnId"]);
   const turnIdSource = stringField(payload, ["turn_id_source", "turnIdSource"]) || (turnId ? "host_payload" : "missing");
   const callId = stringField(payload, ["tool_call_id", "toolCallId", "tool_use_id", "toolUseId", "call_id"]);
-  const platform = stringField(payload, ["agent", "platform"]) || null;
+  const normalizedPlatform = platform || null;
   for (const name of names) {
     appendUsageEvent({
       event_type: "skill_load",
@@ -56,7 +62,7 @@ export function handleSkillLoad(payload: unknown, env: NodeJS.ProcessEnv = proce
       turn_id_source: turnIdSource,
       tool_name: toolName,
       tool_call_id: callId || null,
-      platform,
+      platform: normalizedPlatform,
       skill_name: name,
       source: "hooks_use_post_tool_use",
     }, env);

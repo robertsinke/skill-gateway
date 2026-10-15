@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -21,9 +21,9 @@ describe("skill load hook", () => {
     const count = handleSkillLoad({
       session_id: "session-1",
       turn_id: "turn-4",
-      turn_id_source: "pi_hooks_use_bridge",
+      turn_id_source: "host_payload",
       tool_use_id: "call-9",
-      agent: "pi",
+      agent: "codex",
       tool_name: "Read",
       tool_input: { file_path: skillPath },
       tool_response: "private skill body should not be recorded",
@@ -35,9 +35,9 @@ describe("skill load hook", () => {
     assert.equal(event.skill_name, "calendar");
     assert.equal(event.session_id, "session-1");
     assert.equal(event.turn_id, "turn-4");
-    assert.equal(event.turn_id_source, "pi_hooks_use_bridge");
+    assert.equal(event.turn_id_source, "host_payload");
     assert.equal(event.tool_call_id, "call-9");
-    assert.equal(event.platform, "pi");
+    assert.equal(event.platform, "codex");
     assert.equal(event.source, "hooks_use_post_tool_use");
     assert.equal(JSON.stringify(event).includes(skillPath), false);
     assert.equal(JSON.stringify(event).includes("private skill body"), false);
@@ -53,5 +53,19 @@ describe("skill load hook", () => {
     const events = readFileSync(eventsPath, "utf8").trim().split("\n").map(JSON.parse);
     assert.equal(events.length, 1);
     assert.equal(events[0].skill_name, "calendar");
+  });
+
+  it("does not duplicate Pi reads whose exact turn is tracked by the Pi extension", () => {
+    const { root, skillPath } = fixture();
+    const eventsPath = join(root, "usage-events.jsonl");
+    const count = handleSkillLoad({
+      session_id: "session-1",
+      turn_id: "run-level-id",
+      agent: "pi",
+      tool_name: "Read",
+      tool_input: { file_path: skillPath },
+    }, { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsPath });
+    assert.equal(count, 0);
+    assert.equal(existsSync(eventsPath), false);
   });
 });
