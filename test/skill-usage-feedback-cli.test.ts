@@ -44,16 +44,17 @@ describe("skill usage feedback CLI", () => {
         user_id: "user-a",
         session_id: "session-a",
         turn_id: "turn-a",
-        shortlist_rating: "not_helpful",
-        comment: "The list did not fit this search.",
+        user_skill_feedback: [{ skill_name: "calendar", relevance: "relevant" }],
+        comment: "Calendar fit this search.",
         comment_source: "assistant_paraphrase",
       };
       const updateOutput = execFileSync(process.execPath, ["--experimental-strip-types", cli, "update", "-"], { env, encoding: "utf8", input: JSON.stringify(updateInput) });
       assert.equal(JSON.parse(updateOutput).status, "created");
-      assert.equal(updateOutput.includes("No skill was needed."), false);
+      assert.equal(updateOutput.includes("Calendar fit this search."), false);
       const stored = JSON.parse(readFileSync(feedback, "utf8"));
       assert.deepEqual(stored.should_not_inject_skill_names, []);
-      assert.equal(stored.shortlist_rating, "not_helpful");
+      assert.equal(stored.schema_version, 4);
+      assert.deepEqual(stored.user_skill_feedback, [{ skill_name: "calendar", relevance: "relevant" }]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

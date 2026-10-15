@@ -45,7 +45,7 @@ function parseSearch(input: Record<string, unknown>): SearchSkillUsageTurnsInput
 }
 
 function parseUpdate(input: Record<string, unknown>): UpdateSkillUsageFeedbackInput {
-  rejectUnknownKeys(input, ["user_id", "session_id", "turn_id", "shortlist_rating", "should_not_inject_skill_names", "should_not_load_skill_names", "comment", "comment_source"]);
+  rejectUnknownKeys(input, ["user_id", "session_id", "turn_id", "user_skill_feedback", "should_not_inject_skill_names", "should_not_load_skill_names", "comment", "comment_source"]);
   if (input.user_id !== null && (typeof input.user_id !== "string" || input.user_id.length > 200)) throw new Error("user_id must be null or a string of at most 200 characters.");
   const sessionId = optionalString(input, "session_id", 200);
   const turnId = optionalString(input, "turn_id", 200);
@@ -58,12 +58,15 @@ function parseUpdate(input: Record<string, unknown>): UpdateSkillUsageFeedbackIn
     }
     return value as string[];
   };
+  const userSkillFeedback = input.user_skill_feedback;
+  if (userSkillFeedback !== undefined && (!Array.isArray(userSkillFeedback) || userSkillFeedback.length > 20 || userSkillFeedback.some((item) =>
+    !item || typeof item !== "object" || typeof item.skill_name !== "string" || item.skill_name.length > 200
+      || (item.relevance !== "relevant" && item.relevance !== "not_relevant" && item.relevance !== "unsure"),
+  ))) {
+    throw new Error("user_skill_feedback must contain at most 20 {skill_name, relevance} labels.");
+  }
   const shouldNotInject = skillNames("should_not_inject_skill_names");
   const shouldNotLoad = skillNames("should_not_load_skill_names");
-  const shortlistRating = input.shortlist_rating;
-  if (shortlistRating !== undefined && shortlistRating !== null && shortlistRating !== "helpful" && shortlistRating !== "not_helpful") {
-    throw new Error("shortlist_rating must be helpful, not_helpful, or null.");
-  }
   const comment = optionalString(input, "comment", 2000);
   const commentSource = input.comment_source;
   if (commentSource !== undefined && commentSource !== "user_verbatim" && commentSource !== "assistant_paraphrase") {
@@ -73,7 +76,7 @@ function parseUpdate(input: Record<string, unknown>): UpdateSkillUsageFeedbackIn
     user_id: input.user_id as string | null,
     session_id: sessionId,
     turn_id: turnId,
-    ...(shortlistRating !== undefined ? { shortlist_rating: shortlistRating as "helpful" | "not_helpful" | null } : {}),
+    ...(userSkillFeedback !== undefined ? { user_skill_feedback: userSkillFeedback as UpdateSkillUsageFeedbackInput["user_skill_feedback"] } : {}),
     ...(shouldNotInject !== undefined ? { should_not_inject_skill_names: shouldNotInject } : {}),
     ...(shouldNotLoad !== undefined ? { should_not_load_skill_names: shouldNotLoad } : {}),
     ...(comment !== undefined ? { comment } : {}),

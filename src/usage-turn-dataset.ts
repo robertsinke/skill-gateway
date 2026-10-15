@@ -29,7 +29,7 @@ type GateObservation = {
 };
 
 type TurnRow = {
-  schema_version: 2;
+  schema_version: 4;
   user_id: string | null;
   session_id: string;
   turn_id: string;
@@ -175,7 +175,7 @@ export function buildUsageTurnDataset(events: unknown[], queryRows: unknown[], f
     const identitySourceRows = [...gates, ...loads];
     const sources = [...new Set(identitySourceRows.map((row) => text(row.turn_id_source)).filter((item): item is string => Boolean(item)))];
     return {
-      schema_version: 2,
+      schema_version: 4,
       user_id: text(first?.user_id),
       session_id: String(first?.session_id ?? ""),
       turn_id: String(first?.turn_id ?? ""),
@@ -198,13 +198,20 @@ export function buildUsageTurnDataset(events: unknown[], queryRows: unknown[], f
   return {
     rows,
     metadata: {
-      schema_version: 2,
+      schema_version: 4,
       generated_at: new Date().toISOString(),
       turn_count: rows.length,
       turns_with_gate_decision: rows.filter((row) => row.gate_decisions.length > 0).length,
       turns_with_verified_load: rows.filter((row) => row.verified_load_count > 0).length,
       turns_with_explicit_feedback: rows.filter((row) => row.feedback !== null).length,
-      turns_with_shortlist_rating: rows.filter((row) => row.feedback?.shortlist_rating !== null && row.feedback?.shortlist_rating !== undefined).length,
+      turns_with_user_skill_feedback: rows.filter((row) => (row.feedback?.user_skill_feedback.length ?? 0) > 0).length,
+      turns_with_relevant_skill_feedback: rows.filter((row) => row.feedback?.user_skill_feedback.some((item) => item.relevance === "relevant") ?? false).length,
+      turns_with_not_relevant_skill_feedback: rows.filter((row) => row.feedback?.user_skill_feedback.some((item) => item.relevance === "not_relevant") ?? false).length,
+      turns_with_unsure_skill_feedback: rows.filter((row) => row.feedback?.user_skill_feedback.some((item) => item.relevance === "unsure") ?? false).length,
+      turns_with_legacy_skill_need_label: rows.filter((row) => row.feedback?.legacy_skill_need !== null && row.feedback?.legacy_skill_need !== undefined).length,
+      turns_with_legacy_relevant_skills: rows.filter((row) => (row.feedback?.legacy_relevant_skill_names.length ?? 0) > 0).length,
+      turns_with_legacy_missing_skills: rows.filter((row) => (row.feedback?.legacy_missing_skill_names.length ?? 0) > 0).length,
+      turns_with_legacy_shortlist_rating: rows.filter((row) => row.feedback?.legacy_shortlist_rating !== null && row.feedback?.legacy_shortlist_rating !== undefined).length,
       unlinked_event_counts: unlinked,
       query_match_counts: Object.fromEntries(["matched_hash", "turn_id_only", "hash_mismatch", "ambiguous", "missing_query"].map((status) => [status, rows.filter((row) => row.query_match_status === status).length])),
       passive_reactions_and_followups_included: false,

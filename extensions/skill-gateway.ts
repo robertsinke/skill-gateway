@@ -6,8 +6,8 @@ import { defaultRoots, search, searchRoots } from "../src/search.ts";
 import { buildSkillGateRequest, type GateCandidate } from "../src/skill-gate.ts";
 import { DEFAULT_USAGE_EVENTS, promptDigest } from "../src/usage-events.ts";
 import { findLatestGateEvent, formatGateDetails, formatGateFooter } from "../src/pi-gate-telemetry.ts";
-import { createFeedbackWidget, type FeedbackWidgetAction } from "../src/pi-feedback-widget.ts";
-import { searchSkillUsageTurns, updateSkillUsageFeedback, type ShortlistRating } from "../src/skill-usage-feedback.ts";
+import { createFeedbackWidget } from "../src/pi-feedback-widget.ts";
+import { searchSkillUsageTurns, updateSkillUsageFeedback } from "../src/skill-usage-feedback.ts";
 import { parseSkillSelection, skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
 
 type SuggestionPayload = {
@@ -105,101 +105,96 @@ function feedbackIdentity(event: Record<string, unknown> | undefined): FeedbackI
   };
 }
 
-function currentFeedback(identity: FeedbackIdentity) {
-  return searchSkillUsageTurns({ ...identity, limit: 1 }).results[0]?.feedback ?? null;
+function currentTurn(identity: FeedbackIdentity) {
+  return searchSkillUsageTurns({ ...identity, limit: 1 }).results[0] ?? null;
+}
+
+function recordedInjectedNames(event: Record<string, unknown> | undefined): string[] {
+  return Array.isArray(event?.injected_skill_names)
+    ? [...new Set(event.injected_skill_names.filter((name): name is string => typeof name === "string" && name.length > 0))]
+    : [];
 }
 
 function showFeedbackWidget(ctx: ExtensionContext, debug: GateDebug): void {
   if (!ctx.hasUI || ctx.mode !== "tui") return;
   const identity = feedbackIdentity(debug.event);
-  if (!identity) {
+  const injectedNames = recordedInjectedNames(debug.event);
+  if (!identity || injectedNames.length === 0) {
     ctx.ui.setWidget("skill-gateway-feedback", undefined);
     return;
   }
-  const feedback = currentFeedback(identity);
+  const turn = currentTurn(identity);
+  const state = {
+    injected_skill_names: injectedNames,
+    agent_loaded_skill_names: turn?.loaded_injected_skill_names ?? [],
+    user_skill_feedback: turn?.feedback?.user_skill_feedback ?? [],
+  };
   ctx.ui.setWidget("skill-gateway-feedback", (_tui: unknown, _theme: unknown) => createFeedbackWidget(
-    feedback?.shortlist_rating ?? null,
-    feedback?.comment_present ?? false,
-    (action) => {
-      if (action === "note") {
-        void promptFeedbackComment(ctx, identity, feedback?.comment_present ?? false, () => showFeedbackWidget(ctx, debug));
-      } else {
-        const rating: ShortlistRating = action;
-        try {
-          const result = updateSkillUsageFeedback({ ...identity, shortlist_rating: rating });
-          ctx.ui.notify(result.status === "unchanged" ? "This search rating is already saved locally." : "Saved search rating locally.", "info");
-          showFeedbackWidget(ctx, debug);
-        } catch (error) {
-          ctx.ui.notify(`Could not save search rating: ${error instanceof Error ? error.message : String(error)}`, "error");
-        }
-      }
-    },
+    state,
+    () => void collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug)),
   ), { placement: "belowEditor" });
 }
 
-async function promptFeedbackComment(
+async function collectSkillFeedback(
   ctx: ExtensionContext,
   identity: FeedbackIdentity,
-  commentAlreadyPresent: boolean,
+  debug: GateDebug,
   refresh: () => void,
 ): Promise<void> {
-  let comment: string | undefined;
-  try {
-    comment = await ctx.ui.input("Quick note for this skill search (stored locally)", "What was useful or irrelevant?");
-  } catch (error) {
-    ctx.ui.notify(`Could not open feedback note: ${error instanceof Error ? error.message : String(error)}`, "error");
+  const injectedNames = recordedInjectedNames(debug.event);
+  if (injectedNames.length === 0) {
+    ctx.ui.notify("This turn has no injected skill names to label.", "warning");
     return;
   }
-  if (comment === undefined || (!comment.trim() && !commentAlreadyPresent)) return;
   try {
-    updateSkillUsageFeedback({
-      ...identity,
-      comment,
-      ...(comment.trim() ? { comment_source: "user_verbatim" as const } : {}),
+    const turn = currentTurn(identity);
+    const previous = turn?.feedback?.user_skill_feedback ?? [];
+    const labels = new Map(previous.map((item) => [item.skill_name, item.relevance]));
+    const agentLoaded = new Set(turn?.loaded_injected_skill_names ?? []);
+    for (const skillName of injectedNames) {
+      const options = ["Relevant", "Not relevant", "Unsure", "Skip"];
+      if (labels.has(skillName)) options.push("Clear prior label");
+      const choice = await ctx.ui.select(
+        `Was ${skillName} relevant? Agent explicitly read it: ${agentLoaded.has(skillName) ? "yes" : "no"} (behavior proxy only).`,
+        options,
+      );
+      if (!choice) return;
+      if (choice === "Relevant") labels.set(skillName, "relevant");
+      else if (choice === "Not relevant") labels.set(skillName, "not_relevant");
+      else if (choice === "Unsure") labels.set(skillName, "unsure");
+      else if (choice === "Clear prior label") labels.delete(skillName);
+    }
+    const userSkillFeedback = injectedNames.flatMap((skill_name) => {
+      const relevance = labels.get(skill_name);
+      return relevance ? [{ skill_name, relevance }] : [];
     });
-    ctx.ui.notify(comment.trim() ? "Saved your note locally in the learning dataset." : "Cleared the saved note.", "info");
+    if (JSON.stringify(previous) === JSON.stringify(userSkillFeedback)) {
+      ctx.ui.notify("No per-skill feedback changed.", "info");
+      return;
+    }
+    const result = updateSkillUsageFeedback({ ...identity, user_skill_feedback: userSkillFeedback });
+    ctx.ui.notify(result.status === "unchanged" ? "Per-skill feedback is already saved." : "Saved per-skill relevance feedback locally.", "info");
     refresh();
   } catch (error) {
-    ctx.ui.notify(`Could not save search note: ${error instanceof Error ? error.message : String(error)}`, "error");
+    ctx.ui.notify(`Could not save per-skill feedback: ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 
 function showSkillFeedbackCommand(pi: ExtensionAPI, getDebug: () => GateDebug | undefined): void {
   pi.registerCommand("skill-feedback", {
-    description: "Rate the current skill search and optionally add a private note",
+    description: "Rate the relevance of each injected skill; compare against verified agent reads",
     handler: async (_args, ctx: ExtensionCommandContext) => {
       const debug = getDebug();
       const identity = feedbackIdentity(debug?.event);
       if (!debug || !identity) {
-        ctx.ui.notify("No exactly linked skill search is available to rate for this turn.", "warning");
+        ctx.ui.notify("No exactly linked injected skill list is available for this turn.", "warning");
         return;
       }
       if (!ctx.hasUI) {
-        ctx.ui.notify("Skill search feedback requires interactive Pi UI mode.", "warning");
+        ctx.ui.notify("Skill feedback requires interactive Pi UI mode.", "warning");
         return;
       }
-      const choice = await ctx.ui.select("Rate this skill search", ["Helpful", "Not useful", "Comment only"]);
-      if (!choice) return;
-      const rating: ShortlistRating | undefined = choice === "Helpful" ? "helpful" : choice === "Not useful" ? "not_helpful" : undefined;
-      const oldFeedback = currentFeedback(identity);
-      const comment = await ctx.ui.input("Optional note (stored locally)", "What was useful or irrelevant?");
-      if (comment === undefined && !rating) return;
-      if (comment !== undefined && !comment.trim() && !oldFeedback?.comment_present) {
-        if (!rating) return;
-      }
-      try {
-        updateSkillUsageFeedback({
-          ...identity,
-          ...(rating !== undefined ? { shortlist_rating: rating } : {}),
-          ...(comment !== undefined && (comment.trim() || oldFeedback?.comment_present)
-            ? { comment, ...(comment.trim() ? { comment_source: "user_verbatim" as const } : {}) }
-            : {}),
-        });
-        ctx.ui.notify("Saved skill-search feedback locally in the learning dataset.", "info");
-        if (debug) showFeedbackWidget(ctx, debug);
-      } catch (error) {
-        ctx.ui.notify(`Could not save skill-search feedback: ${error instanceof Error ? error.message : String(error)}`, "error");
-      }
+      await collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug));
     },
   });
 }

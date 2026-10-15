@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import { searchSkillUsageTurns, updateSkillUsageFeedback } from "../src/skill-usage-feedback.ts";
 import { promptDigest } from "../src/usage-events.ts";
 
-const query = "Please prepare the invoice for next week.";
+const query = "Find the next open time and invoice terms";
 
 function fixture(directory: string) {
   const events = join(directory, "usage-events.jsonl");
@@ -24,9 +24,12 @@ function fixture(directory: string) {
     gate_model: "jev-1.13.0",
     probability: 0.91,
     threshold: 0.5,
-    candidate_names: ["calendar"],
-    injected_skill_names: ["calendar"],
-    candidate_rankings: [{ rank: 1, name: "calendar", search_score: 5.2 }],
+    candidate_names: ["calendar", "invoice-review"],
+    injected_skill_names: ["calendar", "invoice-review"],
+    candidate_rankings: [
+      { rank: 1, name: "calendar", search_score: 5.2 },
+      { rank: 2, name: "invoice-review", search_score: 4.7 },
+    ],
     input_tokens: 234,
     jev_list_cost_usd: 0.000009828,
     timestamp: "2026-10-14T18:00:00.000Z",
@@ -52,7 +55,7 @@ function fixture(directory: string) {
 }
 
 describe("skill usage feedback", () => {
-  it("searches exact linked turns without returning stored prompt or comment text", () => {
+  it("exposes verified injected reads as a separate behavior proxy", () => {
     const directory = mkdtempSync(join(tmpdir(), "skill-feedback-search-"));
     try {
       const { env } = fixture(directory);
@@ -60,7 +63,8 @@ describe("skill usage feedback", () => {
       assert.equal(result.total, 1);
       assert.equal(result.results[0]?.turn_id, "turn-a");
       assert.equal(result.results[0]?.query_match_status, "matched_hash");
-      assert.equal(result.results[0]?.loaded_skill_names[0], "calendar");
+      assert.deepEqual(result.results[0]?.loaded_skill_names, ["calendar"]);
+      assert.deepEqual(result.results[0]?.loaded_injected_skill_names, ["calendar"]);
       assert.equal(result.results[0]?.query_present, true);
       assert.equal(JSON.stringify(result).includes(query), false);
       assert.equal(searchSkillUsageTurns({ session_id: "session-a", turn_id: "missing" }, env).total, 0);
@@ -69,26 +73,44 @@ describe("skill usage feedback", () => {
     }
   });
 
-  it("stores a shortlist rating without inventing per-skill labels", () => {
-    const directory = mkdtempSync(join(tmpdir(), "skill-feedback-rating-"));
+  it("stores exact per-injected-skill relevance labels and keeps unlabeled skills unknown", () => {
+    const directory = mkdtempSync(join(tmpdir(), "skill-feedback-labels-"));
     try {
       const { env } = fixture(directory);
       const result = updateSkillUsageFeedback({
         user_id: "user-a",
         session_id: "session-a",
         turn_id: "turn-a",
-        shortlist_rating: "helpful",
+        user_skill_feedback: [
+          { skill_name: "calendar", relevance: "relevant" },
+          { skill_name: "invoice-review", relevance: "not_relevant" },
+        ],
       }, env);
       assert.equal(result.status, "created");
-      assert.equal(result.feedback.shortlist_rating, "helpful");
+      assert.deepEqual(result.feedback.user_skill_feedback, [
+        { skill_name: "calendar", relevance: "relevant" },
+        { skill_name: "invoice-review", relevance: "not_relevant" },
+      ]);
       assert.deepEqual(result.feedback.should_not_inject_skill_names, []);
       assert.deepEqual(result.feedback.should_not_load_skill_names, []);
+      assert.throws(() => updateSkillUsageFeedback({
+        user_id: "user-a",
+        session_id: "session-a",
+        turn_id: "turn-a",
+        user_skill_feedback: [{ skill_name: "not-injected", relevance: "relevant" }],
+      }, env), /not injected/);
+      assert.throws(() => updateSkillUsageFeedback({
+        user_id: "user-a",
+        session_id: "session-a",
+        turn_id: "turn-a",
+        user_skill_feedback: [{ skill_name: "calendar", relevance: "relevant" }, { skill_name: "calendar", relevance: "unsure" }],
+      }, env), /Duplicate per-skill feedback/);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
-  it("appends private feedback, validates observed actions, and preserves prior comments on update", () => {
+  it("appends private snapshots, preserves comments, and never mutates usage logs", () => {
     const directory = mkdtempSync(join(tmpdir(), "skill-feedback-update-"));
     try {
       const { env, events, queries, feedback } = fixture(directory);
@@ -98,39 +120,35 @@ describe("skill usage feedback", () => {
         user_id: "user-a",
         session_id: "session-a",
         turn_id: "turn-a",
-        shortlist_rating: "not_helpful" as const,
-        should_not_inject_skill_names: ["calendar"],
-        should_not_load_skill_names: ["calendar"],
-        comment: "The user says this workflow did not need a skill.",
+        user_skill_feedback: [
+          { skill_name: "calendar", relevance: "relevant" as const },
+          { skill_name: "invoice-review", relevance: "unsure" as const },
+        ],
+        comment: "The user marked calendar relevant.",
         comment_source: "assistant_paraphrase" as const,
       };
       const created = updateSkillUsageFeedback(input, env);
       assert.equal(created.status, "created");
+      assert.equal(created.feedback.schema_version, 4);
       assert.equal(created.feedback.comment_present, true);
-      assert.equal(created.feedback.shortlist_rating, "not_helpful");
       assert.equal(JSON.stringify(created).includes(input.comment), false);
       assert.equal(statSync(feedback).mode & 0o777, 0o600);
       assert.equal(JSON.parse(readFileSync(feedback, "utf8").trim()).comment, input.comment);
-      assert.equal(searchSkillUsageTurns({ session_id: "session-a", turn_id: "turn-a", user_id: "user-a" }, env).results[0]?.feedback?.comment_present, true);
-      assert.equal(searchSkillUsageTurns({ session_id: "session-a", turn_id: "turn-a", user_id: "user-a" }, env).results[0]?.feedback?.shortlist_rating, "not_helpful");
+      assert.deepEqual(searchSkillUsageTurns({ session_id: "session-a", turn_id: "turn-a", user_id: "user-a" }, env).results[0]?.feedback?.user_skill_feedback, input.user_skill_feedback);
       assert.equal(updateSkillUsageFeedback(input, env).status, "unchanged");
 
-      const cleared = updateSkillUsageFeedback({
+      const updated = updateSkillUsageFeedback({
         ...input,
-        should_not_inject_skill_names: [],
-        should_not_load_skill_names: [],
+        user_skill_feedback: [{ skill_name: "calendar", relevance: "unsure" }],
         comment: undefined,
         comment_source: undefined,
       }, env);
-      assert.equal(cleared.status, "updated");
-      assert.equal(cleared.feedback.should_not_inject_skill_names.length, 0);
-      assert.equal(cleared.feedback.should_not_load_skill_names.length, 0);
-      assert.equal(cleared.feedback.comment_present, true);
-      assert.equal(cleared.feedback.shortlist_rating, "not_helpful");
+      assert.equal(updated.status, "updated");
+      assert.equal(updated.feedback.comment_present, true);
+      assert.deepEqual(updated.feedback.user_skill_feedback, [{ skill_name: "calendar", relevance: "unsure" }]);
       assert.equal(readFileSync(events, "utf8"), beforeEvents);
       assert.equal(readFileSync(queries, "utf8"), beforeQueries);
       assert.equal(readFileSync(feedback, "utf8").trim().split("\n").length, 2);
-
       assert.throws(() => updateSkillUsageFeedback({ ...input, session_id: "wrong" }, env), /No exact linked turn/);
       assert.throws(() => updateSkillUsageFeedback({ ...input, should_not_inject_skill_names: ["not-injected"] }, env), /not injected/);
       assert.throws(() => updateSkillUsageFeedback({ ...input, should_not_load_skill_names: ["not-loaded"] }, env), /not verified as loaded/);

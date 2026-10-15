@@ -27,10 +27,10 @@ describe("usage feedback MCP tools", () => {
       gate_status: "pass",
       probability: 0.8,
       threshold: 0.5,
-      candidate_names: ["calendar"],
-      injected_skill_names: ["calendar"],
+      candidate_names: ["calendar", "invoice-review"],
+      injected_skill_names: ["calendar", "invoice-review"],
       timestamp: "2026-10-14T18:00:00.000Z",
-    })}\n`);
+    })}\n${JSON.stringify({ event_type: "skill_load", user_id: "user-a", session_id: "session-a", turn_id: "turn-a", skill_name: "calendar", timestamp: "2026-10-14T18:00:03.000Z" })}\n`);
     writeFileSync(queries, `${JSON.stringify({ user_id: "user-a", session_id: "session-a", turn_id: "turn-a", query: prompt })}\n`);
     process.env.SKILL_GATEWAY_EVENTS = events;
     process.env.SKILL_GATEWAY_LOG = queries;
@@ -57,17 +57,24 @@ describe("usage feedback MCP tools", () => {
           user_id: "user-a",
           session_id: "session-a",
           turn_id: "turn-a",
-          shortlist_rating: "not_helpful",
-          comment: "The shortlist did not fit this request.",
+          user_skill_feedback: [
+            { skill_name: "calendar", relevance: "relevant" },
+            { skill_name: "invoice-review", relevance: "not_relevant" },
+          ],
+          comment: "Calendar was relevant to the request.",
           comment_source: "assistant_paraphrase",
         },
       });
       assert.notEqual(updated.isError, true);
       assert.equal(statSync(feedback).mode & 0o777, 0o600);
       const stored = JSON.parse(readFileSync(feedback, "utf8"));
-      assert.equal(stored.shortlist_rating, "not_helpful");
+      assert.equal(stored.schema_version, 4);
+      assert.deepEqual(stored.user_skill_feedback, [
+        { skill_name: "calendar", relevance: "relevant" },
+        { skill_name: "invoice-review", relevance: "not_relevant" },
+      ]);
       assert.deepEqual(stored.should_not_inject_skill_names, []);
-      assert.equal(JSON.stringify(updated.structuredContent).includes("The shortlist did not fit"), false);
+      assert.equal(JSON.stringify(updated.structuredContent).includes("Calendar was relevant"), false);
     } finally {
       await client.close();
       await server.close();

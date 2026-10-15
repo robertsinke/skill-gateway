@@ -66,16 +66,20 @@ describe("usage turn dataset", () => {
     assert.deepEqual(result.metadata.unlinked_event_counts, { gate_decisions: 0, skill_loads: 1, queries: 1, feedback_records: 0 });
   });
 
-  it("adds explicit feedback only to the exact user/session/turn and excludes passive reactions", () => {
+  it("adds per-skill explicit feedback only to the exact user/session/turn and excludes passive reactions", () => {
     const feedback = {
-      schema_version: 2,
+      schema_version: 4,
       event_type: "skill_usage_feedback",
       event_id: "feedback-1",
       timestamp: "2026-06-14T10:03:00.000Z",
       user_id: "robert",
       session_id: "session-1",
       turn_id: "pi-run-1",
-      shortlist_rating: "not_helpful",
+      user_skill_feedback: [
+        { skill_name: "calendar", relevance: "relevant" },
+        { skill_name: "travel", relevance: "not_relevant" },
+      ],
+      legacy_shortlist_rating: null,
       should_not_inject_skill_names: ["travel"],
       should_not_load_skill_names: [],
       comment: "The shortlist missed the useful skill.",
@@ -89,12 +93,39 @@ describe("usage turn dataset", () => {
       { ...feedback, event_id: "wrong-turn", turn_id: "other-turn" },
     ]);
     assert.equal(result.rows.length, 1);
-    assert.equal(result.rows[0]?.feedback?.shortlist_rating, "not_helpful");
+    assert.deepEqual(result.rows[0]?.feedback?.user_skill_feedback, [
+      { skill_name: "calendar", relevance: "relevant" },
+      { skill_name: "travel", relevance: "not_relevant" },
+    ]);
     assert.equal(result.rows[0]?.feedback?.comment, "The shortlist missed the useful skill.");
     assert.equal(JSON.stringify(result.rows[0]).includes("reaction"), false);
     assert.equal(JSON.stringify(result.rows[0]).includes("followup"), false);
-    assert.equal(result.metadata.turns_with_shortlist_rating, 1);
+    assert.equal(result.metadata.turns_with_user_skill_feedback, 1);
+    assert.equal(result.metadata.turns_with_relevant_skill_feedback, 1);
+    assert.equal(result.metadata.turns_with_not_relevant_skill_feedback, 1);
     assert.deepEqual(result.metadata.unlinked_event_counts, { gate_decisions: 0, skill_loads: 0, queries: 0, feedback_records: 2 });
+  });
+
+  it("preserves legacy whole-shortlist ratings without treating them as per-skill labels", () => {
+    const legacyFeedback = {
+      schema_version: 2,
+      event_type: "skill_usage_feedback",
+      event_id: "legacy-feedback",
+      timestamp: "2026-06-14T10:03:00.000Z",
+      user_id: "robert",
+      session_id: "session-1",
+      turn_id: "pi-run-1",
+      shortlist_rating: "not_helpful",
+      should_not_inject_skill_names: [],
+      should_not_load_skill_names: [],
+      comment: null,
+      comment_source: null,
+    };
+    const result = buildUsageTurnDataset([gateEvent()], [], [legacyFeedback]);
+    assert.equal(result.rows[0]?.feedback?.legacy_shortlist_rating, "not_helpful");
+    assert.deepEqual(result.rows[0]?.feedback?.user_skill_feedback, []);
+    assert.equal(result.metadata.turns_with_user_skill_feedback, 0);
+    assert.equal(result.metadata.turns_with_legacy_shortlist_rating, 1);
   });
 
   it("does not attach a query when its hash disagrees with the gate event", () => {

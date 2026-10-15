@@ -48,7 +48,7 @@ describe("Pi skill picker extension", () => {
     assert.ok(oneMatch.slice(1).every(({ value }) => value.startsWith("__skill_gateway_padding__")));
   });
 
-  it("saves a clicked rating against the exact completed turn", () => {
+  it("records per-injected-skill relevance separately from verified agent reads", async () => {
     const directory = mkdtempSync(join(tmpdir(), "pi-feedback-widget-"));
     const keys = ["SKILL_GATEWAY_EVENTS", "SKILL_GATEWAY_LOG", "SKILL_GATEWAY_FEEDBACK"];
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
@@ -56,23 +56,27 @@ describe("Pi skill picker extension", () => {
     const eventsPath = join(directory, "events.jsonl");
     const queriesPath = join(directory, "queries.jsonl");
     const feedbackPath = join(directory, "feedback.jsonl");
-    writeFileSync(eventsPath, `${JSON.stringify({
+    const gate = {
       event_type: "gate_decision", user_id: "user-a", session_id: "session-a", turn_id: "turn-a",
-      prompt_sha256: promptDigest(prompt), candidate_names: ["calendar"], injected_skill_names: ["calendar"],
+      prompt_sha256: promptDigest(prompt), candidate_names: ["calendar", "invoice-review"], injected_skill_names: ["calendar", "invoice-review"],
       gate_status: "pass", probability: 0.8, threshold: 0.5, timestamp: "2026-10-14T18:00:00.000Z",
-    })}\n`);
+    };
+    const load = { event_type: "skill_load", user_id: "user-a", session_id: "session-a", turn_id: "turn-a", skill_name: "calendar", timestamp: "2026-10-14T18:00:03.000Z" };
+    writeFileSync(eventsPath, `${JSON.stringify(gate)}\n${JSON.stringify(load)}\n`);
     writeFileSync(queriesPath, `${JSON.stringify({ user_id: "user-a", session_id: "session-a", turn_id: "turn-a", query: prompt })}\n`);
     process.env.SKILL_GATEWAY_EVENTS = eventsPath;
     process.env.SKILL_GATEWAY_LOG = queriesPath;
     process.env.SKILL_GATEWAY_FEEDBACK = feedbackPath;
     try {
       const handlers = new Map<string, (...args: any[]) => unknown>();
+      const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
       const widgets: ((tui: unknown, theme: unknown) => any)[] = [];
       extension({
         registerMcpServer() {},
-        registerCommand() {},
+        registerCommand(name: string, command: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, command); },
         on(event: string, handler: (...args: any[]) => unknown) { handlers.set(event, handler); },
       } as never);
+      const selectionAnswers = ["Relevant", "Not relevant"];
       const ctx = {
         hasUI: true,
         mode: "tui",
@@ -80,6 +84,8 @@ describe("Pi skill picker extension", () => {
         ui: {
           setStatus() {},
           notify() {},
+          async select() { return selectionAnswers.shift(); },
+          async input() { return undefined; },
           setWidget(_key: string, content: unknown) { if (typeof content === "function") widgets.push(content as (tui: unknown, theme: unknown) => any); },
         },
       };
@@ -87,12 +93,17 @@ describe("Pi skill picker extension", () => {
       handlers.get("agent_start")!({}, ctx);
       handlers.get("turn_end")!({}, ctx);
       const component = widgets.at(-1)!( {}, {} );
-      const line = component.render(80)[0]!;
-      const x = line.indexOf("[Helpful]");
-      assert.ok(x >= 0);
-      assert.equal(component.handleMouse({ type: "click", button: "left", x, y: 0, width: 80 }).handled, true);
+      assert.match(component.render(120)[0]!, /\[Rate injected skills\]/);
+      assert.match(component.render(120)[0]!, /agent read: calendar \(proxy\)/);
+      await commands.get("skill-feedback")!.handler("", ctx);
       const stored = JSON.parse(readFileSync(feedbackPath, "utf8").trim());
-      assert.equal(stored.shortlist_rating, "helpful");
+      assert.equal(stored.schema_version, 4);
+      assert.deepEqual(stored.user_skill_feedback, [
+        { skill_name: "calendar", relevance: "relevant" },
+        { skill_name: "invoice-review", relevance: "not_relevant" },
+      ]);
+      assert.equal(stored.legacy_shortlist_rating, null);
+      assert.equal(stored.legacy_skill_need, null);
       assert.equal(stored.user_id, "user-a");
       assert.equal(stored.session_id, "session-a");
       assert.equal(stored.turn_id, "turn-a");

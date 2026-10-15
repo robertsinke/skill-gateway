@@ -219,14 +219,18 @@ export function createServer(): McpServer {
   const server = new McpServer({ name: "skill-gateway-mcp-server", version: "1.0.0", title: "Skill Gateway" }, { instructions: INSTRUCTIONS });
   const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   const feedbackSummarySchema = z.object({
-    schema_version: z.literal(2),
+    schema_version: z.literal(4),
     event_type: z.literal("skill_usage_feedback"),
     event_id: z.string(),
     timestamp: z.string(),
     user_id: z.string().nullable(),
     session_id: z.string(),
     turn_id: z.string(),
-    shortlist_rating: z.enum(["helpful", "not_helpful"]).nullable(),
+    user_skill_feedback: z.array(z.object({ skill_name: z.string(), relevance: z.enum(["relevant", "not_relevant", "unsure"]) })),
+    legacy_skill_need: z.enum(["yes", "no", "unsure"]).nullable(),
+    legacy_relevant_skill_names: z.array(z.string()),
+    legacy_missing_skill_names: z.array(z.string()),
+    legacy_shortlist_rating: z.enum(["helpful", "not_helpful"]).nullable(),
     should_not_inject_skill_names: z.array(z.string()),
     should_not_load_skill_names: z.array(z.string()),
     comment_present: z.boolean(),
@@ -397,12 +401,15 @@ export function createServer(): McpServer {
     "usage_feedback_update_turn",
     {
       title: "Update skill usage feedback",
-      description: "Append a feedback snapshot for one exactly linked turn. A shortlist rating is a separate user-provided learning label; exact skill-name negatives remain explicit. Feedback, including optional comments, is stored in a private local JSONL and included in the local learning dataset. Raw usage events are never modified; search/update return no prompt or comment text.",
+      description: "Append per-skill user feedback for one exactly linked injection. Rate each exact injected skill as relevant, not relevant, or unsure. The agent's verified skill reads remain a separate behavior proxy in the usage dataset. Legacy coarse feedback is preserved but no longer collected. Feedback is stored in a private local JSONL; raw usage events are never modified, and search/update return no prompt or comment text.",
       inputSchema: {
         user_id: z.string().max(200).nullable(),
         session_id: z.string().min(1).max(200),
         turn_id: z.string().min(1).max(200),
-        shortlist_rating: z.enum(["helpful", "not_helpful"]).nullable().optional(),
+        user_skill_feedback: z.array(z.object({
+          skill_name: z.string().min(1).max(200),
+          relevance: z.enum(["relevant", "not_relevant", "unsure"]),
+        })).max(20).optional(),
         should_not_inject_skill_names: z.array(z.string().min(1).max(200)).max(20).optional(),
         should_not_load_skill_names: z.array(z.string().min(1).max(200)).max(20).optional(),
         comment: z.string().max(2000).optional(),
