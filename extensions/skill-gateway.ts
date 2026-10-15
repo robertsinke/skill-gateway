@@ -376,6 +376,7 @@ export function applyBackslashCompletion(
 export default function (pi: ExtensionAPI): void {
   pi.registerMcpServer("skill_gateway", { url: endpoint, timeout: 5_000 });
   let gateDebug: GateDebug | undefined;
+  let gatedStartingMessagePending = false;
   const pendingQueuedInputs: PendingQueuedInput[] = [];
   const pendingSkillReads = new Map<string, PendingSkillRead>();
   const queueInput = (prompt: string, deliveredText: string, behavior: "steer" | "followUp", ctx: ExtensionContext): void => {
@@ -392,14 +393,15 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", (event: { prompt?: string }, ctx) => {
     if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget("skill-gateway-feedback", undefined);
-    if (!ctx.hasUI) return;
     const rawPrompt = typeof event.prompt === "string" ? event.prompt : "";
     if (!rawPrompt.trim()) {
       gateDebug = undefined;
-      ctx.ui.setStatus("skill-gateway-gate", undefined);
+      gatedStartingMessagePending = false;
+      if (ctx.hasUI) ctx.ui.setStatus("skill-gateway-gate", undefined);
       return;
     }
-    ctx.ui.setStatus("skill-gateway-gate", "SG evaluating…");
+    gatedStartingMessagePending = true;
+    if (ctx.hasUI) ctx.ui.setStatus("skill-gateway-gate", "SG evaluating…");
     const prompt = rawPrompt.trim();
     try {
       gateDebug = { prompt, promptSha256: promptDigest(prompt), candidates: gateCandidates(rawPrompt) };
@@ -409,28 +411,36 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("agent_start", (_event, ctx) => {
-    if (!ctx.hasUI || !gateDebug) return;
+    if (!gateDebug) return;
     const sessionId = ctx.sessionManager.getSessionId();
     if (!sessionId) {
-      ctx.ui.setStatus("skill-gateway-gate", "SG gate event unavailable");
+      if (ctx.hasUI) ctx.ui.setStatus("skill-gateway-gate", "SG gate event unavailable");
       return;
     }
     const event = currentGateEvent(sessionId, gateDebug.promptSha256);
     if (!event) {
       gateDebug = undefined;
-      ctx.ui.setStatus("skill-gateway-gate", "SG gate event unavailable");
+      if (ctx.hasUI) ctx.ui.setStatus("skill-gateway-gate", "SG gate event unavailable");
       return;
     }
     const localNames = gateDebug.candidates.map(({ name }) => name);
     const eventNames = recordedCandidateNames(event);
     gateDebug = { ...gateDebug, event, candidatesMatch: JSON.stringify(localNames) === JSON.stringify(eventNames) };
-    ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event));
-    showFeedbackWidget(ctx, gateDebug, true);
+    if (ctx.hasUI && ctx.mode === "tui") {
+      ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event));
+      showFeedbackWidget(ctx, gateDebug, true);
+    }
   });
 
   pi.on("message_start", (event, ctx) => {
     if (event.message.role !== "user") return;
-    const queued = takeQueuedInput(pendingQueuedInputs, userMessageText(event.message));
+    const deliveredText = userMessageText(event.message);
+    if (gatedStartingMessagePending) {
+      gatedStartingMessagePending = false;
+      takeQueuedInput(pendingQueuedInputs, deliveredText);
+      return;
+    }
+    const queued = takeQueuedInput(pendingQueuedInputs, deliveredText);
     if (!queued) return;
     gateDebug = queuedPromptDebug(queued.prompt, queued.identity);
     try {
@@ -518,6 +528,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     failureShown = false;
     gateDebug = undefined;
+    gatedStartingMessagePending = false;
     pendingQueuedInputs.length = 0;
     pendingSkillReads.clear();
     if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget("skill-gateway-feedback", undefined);
@@ -612,6 +623,10 @@ export default function (pi: ExtensionAPI): void {
       return { action: "transform", text: transformedText, images: event.images };
     } catch (error) {
       showFailure(error);
+      if (!leadingSelection) {
+        if (behavior) queueInput(text, text, behavior, ctx);
+        return { action: "continue" };
+      }
       return { action: "handled" };
     }
   });
