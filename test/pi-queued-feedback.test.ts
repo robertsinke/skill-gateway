@@ -27,17 +27,22 @@ describe("Pi queued prompt feedback", () => {
     process.env.SKILL_GATEWAY_USER = "user-a";
     try {
       const firstPrompt = "first run prompt";
+      const queuedRawPrompt = "/skill:calendar review the diff";
+      const queuedDeliveredPrompt = "Read the calendar skill, then review the diff";
+      const secondRawPrompt = "/skill:calendar check tomorrow";
+      const secondDeliveredPrompt = "Expanded follow-up: check tomorrow with calendar";
       const firstGate = {
         event_type: "gate_decision", user_id: "user-a", session_id: "session-a", turn_id: "first-turn",
-        prompt_sha256: promptDigest(firstPrompt), candidate_names: ["calendar"], injected_skill_names: [],
-        gate_status: "reject", timestamp: "2026-10-14T18:00:00.000Z",
+        prompt_sha256: promptDigest(firstPrompt), candidate_names: ["calendar"], injected_skill_names: ["calendar"],
+        gate_status: "pass", timestamp: "2026-10-14T18:00:00.000Z",
       };
       writeFileSync(eventsPath, `${JSON.stringify(firstGate)}\n`);
       writeFileSync(queriesPath, `${JSON.stringify({ user_id: "user-a", session_id: "session-a", turn_id: "first-turn", query: firstPrompt })}\n`);
 
       const handlers = new Map<string, (...args: any[]) => unknown>();
       const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-      const widgets: ((tui: unknown, theme: unknown) => any)[] = [];
+      const widgets = new Map<string, (tui: unknown, theme: unknown) => any>();
+      const feedbackChoices: string[] = [];
       const statuses: string[] = [];
       extension({
         registerMcpServer() {},
@@ -52,23 +57,31 @@ describe("Pi queued prompt feedback", () => {
         ui: {
           setStatus(_key: string, status?: string) { if (status) statuses.push(status); },
           notify() {},
-          async select() { return "No"; },
-          setWidget(_key: string, content: unknown) {
-            if (typeof content === "function") widgets.push(content as (tui: unknown, theme: unknown) => any);
+          async select() { return feedbackChoices.shift() ?? "No"; },
+          setWidget(key: string, content: unknown) {
+            if (typeof content === "function") widgets.set(key, content as (tui: unknown, theme: unknown) => any);
+            else widgets.delete(key);
           },
         },
       };
 
       handlers.get("before_agent_start")!({ prompt: firstPrompt }, ctx);
       handlers.get("agent_start")!({}, ctx);
-      assert.match(widgets.at(-1)!({}, {}).render(200)[0]!, /first run prompt|injected: none/);
+      assert.match(widgets.get("skill-gateway-feedback")!({}, {}).render(200)[0]!, /injected: calendar/);
       handlers.get("message_start")!({ message: { role: "user", content: [{ type: "text", text: firstPrompt }] } }, ctx);
 
-      await handlers.get("input")!({ text: "queued follow-up", source: "interactive", streamingBehavior: "steer" }, ctx);
+      await handlers.get("input")!({ text: queuedRawPrompt, source: "interactive", streamingBehavior: "steer" }, ctx);
+      await handlers.get("input")!({ text: secondRawPrompt, source: "interactive", streamingBehavior: "followUp" }, ctx);
       assert.equal(handlers.has("message_start"), true, "the extension must observe delivery of queued user messages");
-      handlers.get("message_start")!({ message: { role: "user", content: [{ type: "text", text: "queued follow-up" }] } }, ctx);
+      handlers.get("message_start")!({ message: { role: "user", content: [{ type: "text", text: queuedDeliveredPrompt }] } }, ctx);
       assert.match(statuses.at(-1)!, /not evaluated/i);
-      assert.match(widgets.at(-1)!({}, {}).render(200)[0]!, /injected: none/);
+      assert.match(widgets.get("skill-gateway-feedback")!({}, {}).render(200)[0]!, /injected: none/);
+      const pendingWidgetName = "skill-gateway-feedback-pending-first-turn";
+      assert.match(widgets.get(pendingWidgetName)!({}, {}).render(200)[0]!, /injected: calendar/);
+      feedbackChoices.push("Yes", "Relevant");
+      widgets.get(pendingWidgetName)!({}, {}).handleMouse({ type: "click", button: "left", x: 0, y: 0, width: 200 });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(widgets.has(pendingWidgetName), false, "rating the earlier gated turn should clear its preserved form");
 
       handlers.get("tool_execution_start")!({ toolCallId: "read-1", toolName: "skill_gateway__skills_read_skill", args: { name: "calendar" } }, ctx);
       handlers.get("tool_execution_end")!({ toolCallId: "read-1", toolName: "skill_gateway__skills_read_skill", isError: false, result: {} }, ctx);
@@ -79,9 +92,23 @@ describe("Pi queued prompt feedback", () => {
       assert.equal(queued?.query_present, true);
       assert.deepEqual(queued?.loaded_skill_names, ["calendar"]);
       await commands.get("skill-feedback")!.handler("", ctx);
-      const saved = JSON.parse(readFileSync(feedbackPath, "utf8").trim());
-      assert.equal(saved.turn_id, queued?.turn_id);
-      assert.equal(saved.injection_decision, "no");
+      const savedFeedback = readFileSync(feedbackPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+      const saved = savedFeedback.find((feedback) => feedback.turn_id === queued?.turn_id);
+      const firstTurnFeedback = savedFeedback.find((feedback) => feedback.turn_id === "first-turn");
+      assert.equal(saved?.injection_decision, "no");
+      assert.equal(firstTurnFeedback?.injection_decision, "yes");
+      assert.deepEqual(firstTurnFeedback?.user_skill_feedback, [{ skill_name: "calendar", relevance: "relevant" }]);
+      const queuedQuery = readFileSync(queriesPath, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+        .find((query) => query.turn_id === queued?.turn_id);
+      assert.equal(queuedQuery?.query, queuedDeliveredPrompt, "ordered mirror matching records the text Pi actually delivered");
+      handlers.get("message_start")!({ message: { role: "user", content: [{ type: "text", text: secondDeliveredPrompt }] } }, ctx);
+      const orderedQueries = readFileSync(queriesPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+      const secondQueuedQuery = orderedQueries.find((query) => query.query === secondDeliveredPrompt);
+      assert.ok(secondQueuedQuery?.turn_id);
+      assert.notEqual(secondQueuedQuery?.turn_id, queued?.turn_id, "each ordered mirror keeps its own turn identity");
+      const secondQueuedEvent = readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+        .find((event) => event.turn_id === secondQueuedQuery?.turn_id && event.gate_status === "not_evaluated");
+      assert.ok(secondQueuedEvent, "the next delivery consumes the next queued mirror in order");
 
       const stalePrompt = "same text after dequeue";
       await handlers.get("input")!({ text: stalePrompt, source: "interactive", streamingBehavior: "steer" }, ctx);

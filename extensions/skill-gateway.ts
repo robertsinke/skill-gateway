@@ -119,10 +119,17 @@ function userMessageText(message: unknown): string {
     && "text" in item && typeof item.text === "string" ? [item.text] : []).join("");
 }
 
-function takeQueuedInput(queue: PendingQueuedInput[], text: string): PendingQueuedInput | undefined {
+function exactQueuedInputIndex(queue: PendingQueuedInput[], text: string): number {
   const matching = queue.map((item, index) => ({ item, index })).filter(({ item }) => item.deliveredText === text);
-  const selected = matching.find(({ item }) => item.behavior === "steer") ?? matching[0];
-  return selected ? queue.splice(selected.index, 1)[0] : undefined;
+  return (matching.find(({ item }) => item.behavior === "steer") ?? matching[0])?.index ?? -1;
+}
+
+function takeQueuedInput(queue: PendingQueuedInput[], text: string, allowOrderedFallback = false): PendingQueuedInput | undefined {
+  const exactIndex = exactQueuedInputIndex(queue, text);
+  const index = exactIndex >= 0 ? exactIndex : (allowOrderedFallback && queue.length > 0 ? 0 : -1);
+  if (index < 0) return undefined;
+  const queued = queue.splice(index, 1)[0];
+  return queued ? { ...queued, prompt: text } : undefined;
 }
 
 function queuedPromptDebug(prompt: string, identity: FeedbackIdentity): GateDebug {
@@ -194,12 +201,18 @@ function isSkillReadTool(toolName: string, args: unknown): boolean {
   );
 }
 
-function showFeedbackWidget(ctx: ExtensionContext, debug: GateDebug, agentReadsPending = false): void {
+function showFeedbackWidget(
+  ctx: ExtensionContext,
+  debug: GateDebug,
+  agentReadsPending = false,
+  widgetName = "skill-gateway-feedback",
+  onComplete?: () => void,
+): void {
   if (!ctx.hasUI || ctx.mode !== "tui") return;
   const identity = feedbackIdentity(debug.event);
   const injectedNames = recordedInjectedNames(debug.event);
   if (!identity) {
-    ctx.ui.setWidget("skill-gateway-feedback", undefined);
+    ctx.ui.setWidget(widgetName, undefined);
     return;
   }
   const turn = currentTurn(identity);
@@ -210,9 +223,15 @@ function showFeedbackWidget(ctx: ExtensionContext, debug: GateDebug, agentReadsP
     injection_decision: turn?.feedback?.injection_decision ?? null,
     user_skill_feedback: turn?.feedback?.user_skill_feedback ?? [],
   };
-  ctx.ui.setWidget("skill-gateway-feedback", (_tui: unknown, _theme: unknown) => createFeedbackWidget(
+  ctx.ui.setWidget(widgetName, (_tui: unknown, _theme: unknown) => createFeedbackWidget(
     state,
-    () => void collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug, agentReadsPending)),
+    () => void collectSkillFeedback(
+      ctx,
+      identity,
+      debug,
+      () => showFeedbackWidget(ctx, debug, agentReadsPending, widgetName, onComplete),
+      onComplete,
+    ),
   ), { placement: "aboveEditor" });
 }
 
@@ -221,6 +240,7 @@ async function collectSkillFeedback(
   identity: FeedbackIdentity,
   debug: GateDebug,
   refresh: () => void,
+  onComplete?: () => void,
 ): Promise<void> {
   const injectedNames = recordedInjectedNames(debug.event);
   try {
@@ -258,17 +278,24 @@ async function collectSkillFeedback(
     });
     if (previousDecision === injectionDecision && JSON.stringify(previous) === JSON.stringify(userSkillFeedback)) {
       ctx.ui.notify("No skill feedback changed.", "info");
+      refresh();
+      onComplete?.();
       return;
     }
     const result = updateSkillUsageFeedback({ ...identity, injection_decision: injectionDecision, user_skill_feedback: userSkillFeedback });
     ctx.ui.notify(result.status === "unchanged" ? "Skill feedback is already saved." : "Saved injection and per-skill feedback locally.", "info");
     refresh();
+    onComplete?.();
   } catch (error) {
     ctx.ui.notify(`Could not save per-skill feedback: ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 
-function showSkillFeedbackCommand(pi: ExtensionAPI, getDebug: () => GateDebug | undefined): void {
+function showSkillFeedbackCommand(
+  pi: ExtensionAPI,
+  getDebug: () => GateDebug | undefined,
+  onComplete: (identity: FeedbackIdentity) => void = () => {},
+): void {
   pi.registerCommand("skill-feedback", {
     description: "Rate whether any skills should have been injected, then rate each injected skill against verified agent reads",
     handler: async (_args, ctx: ExtensionCommandContext) => {
@@ -282,7 +309,7 @@ function showSkillFeedbackCommand(pi: ExtensionAPI, getDebug: () => GateDebug | 
         ctx.ui.notify("Skill feedback requires interactive Pi UI mode.", "warning");
         return;
       }
-      await collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug));
+      await collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug), () => onComplete(identity));
     },
   });
 }
@@ -377,6 +404,42 @@ export default function (pi: ExtensionAPI): void {
   pi.registerMcpServer("skill_gateway", { url: endpoint, timeout: 5_000 });
   let gateDebug: GateDebug | undefined;
   let gatedStartingMessagePending = false;
+  const completedFeedbackTurns = new Set<string>();
+  const pendingFeedbackWidgets = new Map<string, string>();
+  const clearPendingFeedbackWidgets = (ctx: ExtensionContext): void => {
+    if (ctx.hasUI && ctx.mode === "tui") {
+      for (const widgetName of pendingFeedbackWidgets.values()) ctx.ui.setWidget(widgetName, undefined);
+    }
+    pendingFeedbackWidgets.clear();
+  };
+  const markFeedbackComplete = (identity: FeedbackIdentity): void => { completedFeedbackTurns.add(identity.turn_id); };
+  const showCurrentFeedback = (ctx: ExtensionContext, debug: GateDebug, agentReadsPending = false): void => {
+    const identity = feedbackIdentity(debug.event);
+    showFeedbackWidget(ctx, debug, agentReadsPending, "skill-gateway-feedback", identity ? () => markFeedbackComplete(identity) : undefined);
+  };
+  const preserveFeedback = (ctx: ExtensionContext, debug: GateDebug): void => {
+    if (!ctx.hasUI || ctx.mode !== "tui") return;
+    const identity = feedbackIdentity(debug.event);
+    if (!identity || completedFeedbackTurns.has(identity.turn_id) || pendingFeedbackWidgets.has(identity.turn_id)) return;
+    try {
+      const turn = currentTurn(identity);
+      const decision = turn?.feedback?.injection_decision;
+      const labels = new Set((turn?.feedback?.user_skill_feedback ?? []).map(({ skill_name }) => skill_name));
+      if (decision !== null && decision !== undefined && recordedInjectedNames(debug.event).every((name) => labels.has(name))) {
+        completedFeedbackTurns.add(identity.turn_id);
+        return;
+      }
+    } catch {
+      // Keep the form accessible if reading prior feedback fails.
+    }
+    const widgetName = `skill-gateway-feedback-pending-${identity.turn_id}`;
+    pendingFeedbackWidgets.set(identity.turn_id, widgetName);
+    showFeedbackWidget(ctx, debug, false, widgetName, () => {
+      markFeedbackComplete(identity);
+      pendingFeedbackWidgets.delete(identity.turn_id);
+      ctx.ui.setWidget(widgetName, undefined);
+    });
+  };
   const pendingQueuedInputs: PendingQueuedInput[] = [];
   const pendingSkillReads = new Map<string, PendingSkillRead>();
   const queueInput = (prompt: string, deliveredText: string, behavior: "steer" | "followUp", ctx: ExtensionContext): void => {
@@ -389,9 +452,11 @@ export default function (pi: ExtensionAPI): void {
       identity: { user_id: userId({}, process.env), session_id, turn_id: randomUUID() },
     });
   };
-  showSkillFeedbackCommand(pi, () => gateDebug);
+  showSkillFeedbackCommand(pi, () => gateDebug, markFeedbackComplete);
 
   pi.on("before_agent_start", (event: { prompt?: string }, ctx) => {
+    clearPendingFeedbackWidgets(ctx);
+    completedFeedbackTurns.clear();
     if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget("skill-gateway-feedback", undefined);
     const rawPrompt = typeof event.prompt === "string" ? event.prompt : "";
     if (!rawPrompt.trim()) {
@@ -428,7 +493,7 @@ export default function (pi: ExtensionAPI): void {
     gateDebug = { ...gateDebug, event, candidatesMatch: JSON.stringify(localNames) === JSON.stringify(eventNames) };
     if (ctx.hasUI && ctx.mode === "tui") {
       ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event));
-      showFeedbackWidget(ctx, gateDebug, true);
+      showCurrentFeedback(ctx, gateDebug, true);
     }
   });
 
@@ -437,11 +502,15 @@ export default function (pi: ExtensionAPI): void {
     const deliveredText = userMessageText(event.message);
     if (gatedStartingMessagePending) {
       gatedStartingMessagePending = false;
+      const startingMirrorIndex = exactQueuedInputIndex(pendingQueuedInputs, deliveredText);
       takeQueuedInput(pendingQueuedInputs, deliveredText);
+      if (startingMirrorIndex < 0) pendingQueuedInputs.length = 0;
+      else pendingQueuedInputs.splice(0, startingMirrorIndex);
       return;
     }
-    const queued = takeQueuedInput(pendingQueuedInputs, deliveredText);
+    const queued = takeQueuedInput(pendingQueuedInputs, deliveredText, true);
     if (!queued) return;
+    if (gateDebug?.event) preserveFeedback(ctx, gateDebug);
     gateDebug = queuedPromptDebug(queued.prompt, queued.identity);
     try {
       recordQueuedPrompt(queued.prompt, queued.identity, gateDebug.event!);
@@ -450,7 +519,7 @@ export default function (pi: ExtensionAPI): void {
     }
     if (ctx.hasUI && ctx.mode === "tui") {
       ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(gateDebug.event!));
-      showFeedbackWidget(ctx, gateDebug, true);
+      showCurrentFeedback(ctx, gateDebug, true);
     }
   });
 
@@ -485,7 +554,7 @@ export default function (pi: ExtensionAPI): void {
       }
     }
     if (gateDebug?.event && (read || isSkillReadTool(event.toolName, undefined))) {
-      showFeedbackWidget(ctx, gateDebug, true);
+      showCurrentFeedback(ctx, gateDebug, true);
     }
   });
 
@@ -522,7 +591,7 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.on("turn_end", (_event, ctx) => {
-    if (gateDebug?.event) showFeedbackWidget(ctx, gateDebug, false);
+    if (gateDebug?.event) showCurrentFeedback(ctx, gateDebug, false);
   });
 
   pi.on("session_start", (_event, ctx) => {
@@ -531,6 +600,8 @@ export default function (pi: ExtensionAPI): void {
     gatedStartingMessagePending = false;
     pendingQueuedInputs.length = 0;
     pendingSkillReads.clear();
+    completedFeedbackTurns.clear();
+    clearPendingFeedbackWidgets(ctx);
     if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget("skill-gateway-feedback", undefined);
     if (ctx.hasUI) ctx.ui.setStatus("skill-gateway-gate", undefined);
     notify = ctx.hasUI ? (message) => ctx.ui.notify(message, "error") : undefined;
