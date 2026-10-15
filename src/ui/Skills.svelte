@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { phrase, sourceLine } from "./lib/format";
   import type { RemovableCopy, ScanReport, SortKey } from "./lib/types";
   import { gateway } from "./state.svelte";
@@ -12,6 +13,26 @@
   let reportVisible = $state(false);
   let reports = $state<ScanReport[]>([]);
   let removable = $state<RemovableCopy[]>([]);
+  type Metadata = { capabilities?: string[]; aliases?: string[]; avoid_when?: string[] };
+  let metadata = $state<Record<string, Metadata>>({});
+  let metadataPath = $state("");
+  let metadataName = $state("");
+  let capabilities = $state("");
+  let aliases = $state("");
+  let avoidWhen = $state("");
+  let metadataMessage = $state("");
+
+  const metadataNames = $derived(
+    [...new Set([...gateway.skills.map((skill) => skill.name), ...Object.keys(metadata)])].sort((a, b) => a.localeCompare(b)),
+  );
+
+  onMount(() => {
+    void loadMetadata();
+  });
+
+  $effect(() => {
+    if (!metadataName && metadataNames.length) selectMetadata(metadataNames[0]!);
+  });
 
   const visible = $derived.by(() => {
     const needle = query.trim().toLowerCase();
@@ -42,6 +63,63 @@
       sortKey = key;
       sortDescending = key === "uses" || key === "added";
     }
+  }
+
+  async function loadMetadata(): Promise<void> {
+    const response = await fetch("/api/metadata");
+    const body = (await response.json()) as { metadata?: Record<string, Metadata>; path?: string };
+    metadata = body.metadata ?? {};
+    metadataPath = body.path ?? "";
+    const initial = gateway.selectedName || gateway.skills[0]?.name || Object.keys(metadata)[0];
+    if (initial) selectMetadata(initial);
+  }
+
+  function splitLines(value: string): string[] {
+    return value.split("\n").map((line) => line.trim()).filter(Boolean);
+  }
+
+  function selectMetadata(name: string): void {
+    metadataName = name;
+    const item = metadata[name] ?? {};
+    capabilities = (item.capabilities ?? []).join("\n");
+    aliases = (item.aliases ?? []).join("\n");
+    avoidWhen = (item.avoid_when ?? []).join("\n");
+    metadataMessage = "";
+  }
+
+  function addMetadata(): void {
+    const name = window.prompt("Skill name");
+    if (name?.trim()) selectMetadata(name.trim());
+  }
+
+  async function saveMetadata(): Promise<void> {
+    if (!metadataName.trim()) {
+      metadataMessage = "Choose a skill first.";
+      return;
+    }
+    const next = { capabilities: splitLines(capabilities), aliases: splitLines(aliases), avoid_when: splitLines(avoidWhen) };
+    const response = await fetch("/api/metadata", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: metadataName.trim(), metadata: next }),
+    });
+    const body = (await response.json()) as { error?: string; metadata?: Record<string, Metadata> };
+    if (!response.ok) {
+      metadataMessage = body.error ?? "Could not save metadata.";
+      return;
+    }
+    metadata = body.metadata ?? metadata;
+    metadataMessage = "Saved.";
+  }
+
+  async function deleteMetadata(): Promise<void> {
+    if (!metadataName) return;
+    const response = await fetch(`/api/metadata?name=${encodeURIComponent(metadataName)}`, { method: "DELETE" });
+    if (!response.ok) return;
+    const body = (await response.json()) as { metadata?: Record<string, Metadata> };
+    metadata = body.metadata ?? {};
+    selectMetadata(metadataName);
+    metadataMessage = "Removed.";
   }
 
   function ariaSort(key: SortKey): "ascending" | "descending" | undefined {
@@ -202,4 +280,28 @@
       </tbody>
     </table>
   </div>
+  <section class="metadata-section">
+    <div class="section-line">
+      <div>
+        <h2>Search metadata</h2>
+        <p class="sub">Add the words and capabilities that should help find each skill. Avoid rules guide semantic reranking.</p>
+      </div>
+      <button class="action quiet compact" type="button" onclick={addMetadata}>Add skill metadata</button>
+    </div>
+    <p class="path">{metadataPath}</p>
+    <div class="metadata-picker">
+      <label for="metadata-skill">Skill</label>
+      <select id="metadata-skill" value={metadataName} onchange={(event) => selectMetadata(event.currentTarget.value)}>
+        {#each metadataNames as name (name)}<option value={name}>{name}</option>{/each}
+      </select>
+    </div>
+    <div class="metadata-fields">
+      <div class="field compact-field"><textarea id="capabilities" placeholder="One capability per line" bind:value={capabilities}></textarea><label for="capabilities">Capabilities</label></div>
+      <div class="field compact-field"><textarea id="aliases" placeholder="One alias per line" bind:value={aliases}></textarea><label for="aliases">Aliases</label></div>
+      <div class="field compact-field"><textarea id="avoid-when" placeholder="One avoid rule per line" bind:value={avoidWhen}></textarea><label for="avoid-when">Avoid when</label></div>
+    </div>
+    <button class="action" type="button" onclick={() => void saveMetadata()}>Save metadata</button>
+    {#if metadata[metadataName]}<button class="action quiet" type="button" onclick={() => void deleteMetadata()}>Remove metadata</button>{/if}
+    <p class="sub setting-message">{metadataMessage}</p>
+  </section>
 </section>

@@ -84,6 +84,7 @@ export type Document = {
   name: string;
   description: string;
   path: string;
+  originalDescription?: string;
 };
 
 export type Hit = {

@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { exactLookup, rank, type Document } from "./rank.ts";
+import { enrichedDescription, loadMetadata } from "./metadata.ts";
 
 export const DEFAULT_ROOT = `${homedir()}/.skills-manager/skills`;
 export const GATEWAY_LIBRARY = `${homedir()}/.local/share/skill-gateway/library`;
@@ -39,6 +40,7 @@ export function loadCatalog(root: string): Skill[] {
     throw new SearchError(`library root is missing: ${root}`);
   }
   const skills: Skill[] = [];
+  const metadata = loadMetadata();
   for (const child of entries.sort()) {
     const folder = `${root}/${child}`;
     let folderStat;
@@ -59,10 +61,12 @@ export function loadCatalog(root: string): Skill[] {
     const name = meta.name;
     const skillName = typeof name === "string" && name.trim() ? name.trim() : child;
     if (CURSOR_ONLY.has(skillName) || CURSOR_ONLY.has(child)) continue;
+    const originalDescription = descriptionText(meta.description);
     skills.push({
       document: {
         name: skillName,
-        description: descriptionText(meta.description),
+        description: enrichedDescription(skillName, originalDescription, false, metadata),
+        originalDescription,
         path: realpathSync(folder),
       },
       targets: targets(meta.targets),

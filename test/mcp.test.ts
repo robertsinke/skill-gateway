@@ -33,6 +33,17 @@ describe("mcp tools", () => {
     assert.equal("score" in payload.results[0]!, false);
     const browse = suggestLibrary("", { root });
     assert.deepEqual(browse.results.map(({ name }) => name), ["calendar", "inbox"]);
+    const prefix = suggestLibrary("c*", { root });
+    assert.deepEqual(prefix.results.map(({ name }) => name), ["calendar"]);
+  });
+
+  it("matches longer partial name prefixes", () => {
+    const root = mkdtempSync(join(tmpdir(), "mcp-picker-"));
+    skill(root, "archify", "Create architecture diagrams.");
+    skill(root, "notes", "The arc is a useful example.");
+    const payload = suggestLibrary("arc", { root });
+    assert.equal(payload.results[0]?.name, "archify");
+    assert.ok(payload.results.some(({ name }) => name === "notes"));
   });
 
   it("returns a markdown shortlist and a JSON page", () => {

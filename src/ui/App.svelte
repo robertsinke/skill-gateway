@@ -4,6 +4,7 @@
   import Home from "./Home.svelte";
   import Router from "./Router.svelte";
   import Skills from "./Skills.svelte";
+  import Settings from "./Settings.svelte";
   import { gateway } from "./state.svelte";
   import type { View } from "./lib/types";
 
@@ -12,6 +13,7 @@
     { view: "skills", label: "Skills" },
     { view: "router", label: "Router" },
     { view: "analytics", label: "Analytics" },
+    { view: "settings", label: "Settings" },
   ];
 
   onMount(() => {
@@ -63,8 +65,10 @@
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.5 2L4 9h3.2L6.8 14 12 7H8.8z" /></svg>
           {:else if item.view === "router"}
             <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.5" /><circle cx="12" cy="8" r="1.5" /><circle cx="4" cy="12" r="1.5" /><path d="M5.5 4.5L10.5 7.5M10.5 8.5L5.5 11.5" /></svg>
-          {:else}
+          {:else if item.view === "analytics"}
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12V8M7 12V4M11 12V6M14 13H2" /></svg>
+          {:else}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5l1 1.9 2.1.3-1.5 1.5.4 2.1L8 7.3 6 8.3l.4-2.1L4.9 4.7 7 4.4zM3.5 10.5h9M3.5 13h9" /></svg>
           {/if}
           <span>{item.label}</span>
           {#if count(item.view)}
@@ -89,5 +93,6 @@
     <div data-panel="skills" hidden={gateway.view !== "skills"}><Skills /></div>
     <div data-panel="router" hidden={gateway.view !== "router"}><Router /></div>
     <div data-panel="analytics" hidden={gateway.view !== "analytics"}><Analytics /></div>
+    <div data-panel="settings" hidden={gateway.view !== "settings"}><Settings /></div>
   </main>
 </div>

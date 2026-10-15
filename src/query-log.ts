@@ -1,10 +1,17 @@
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 
 export const DEFAULT_LOG = `${homedir()}/.local/share/skill-gateway/queries.jsonl`;
 
 export type QueryRow = Record<string, unknown>;
+export type GateAudit = {
+  status: "pass" | "reject" | "error" | "bypassed" | "no_candidates";
+  model: string | null;
+  probability: number | null;
+  candidates: string[];
+  reason?: string;
+};
 
 export function logPath(env: NodeJS.ProcessEnv = process.env): string | null {
   const override = (env.SKILL_GATEWAY_LOG ?? "").trim();
@@ -31,14 +38,24 @@ export function sessionId(payload: Record<string, unknown>): string {
   return "";
 }
 
-export function record(payload: Record<string, unknown>, query: string, skills: string[], env: NodeJS.ProcessEnv = process.env): void {
+export function record(
+  payload: Record<string, unknown>,
+  query: string,
+  skills: string[],
+  env: NodeJS.ProcessEnv = process.env,
+  gate?: GateAudit,
+): void {
   const path = logPath(env);
   if (path === null) return;
   const ranks = skills.map((name, index) => ({ rank: index + 1, name }));
+  const turnId = typeof payload.turn_id === "string" ? payload.turn_id : typeof payload.turnId === "string" ? payload.turnId : null;
+  const platform = typeof payload.agent === "string" ? payload.agent : null;
   const entry = {
     date: new Date().toISOString(),
     user_id: userId(payload, env),
     session_id: sessionId(payload),
+    ...(turnId ? { turn_id: turnId } : {}),
+    ...(platform ? { platform } : {}),
     query,
     ranks,
     skills,
@@ -47,9 +64,11 @@ export function record(payload: Record<string, unknown>, query: string, skills: 
     followup: null,
     reaction: null,
     helped: null,
+    ...(gate ? { gate } : {}),
   };
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf8");
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  appendFileSync(path, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });
+  chmodSync(path, 0o600);
 }
 
 export function noteFollowup(session: string, text: string, env: NodeJS.ProcessEnv = process.env): void {
@@ -78,7 +97,8 @@ export function noteFollowup(session: string, text: string, env: NodeJS.ProcessE
     item.followup = cleaned;
     item.reaction = reactionTo(cleaned);
     lines[index] = JSON.stringify(item);
-    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+    writeFileSync(path, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+    chmodSync(path, 0o600);
     return;
   }
 }

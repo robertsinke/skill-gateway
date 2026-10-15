@@ -136,3 +136,21 @@
   .row.ok .rank { color: var(--ink); font-weight: 600; }
   .row .detail { grid-column: 2; color: var(--muted); font-size: 14px; line-height: 20px; }
   .empty { margin-top: 16px; color: var(--secondary); }
+  .settings-section { max-width: 920px; margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
+  .settings-section h2 { margin-top: 0; }
+  .metadata-section { max-width: 1120px; margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
+  .metadata-section h2 { margin-top: 0; }
+  .section-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .setting-status { display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--secondary); font-size: 13px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #B8B8B8; }
+  .setting-status.configured .status-dot { background: #2D7A4F; }
+  .setting-message { min-height: 20px; }
+  .path { margin: 12px 0 0; color: var(--muted); font: 12px/18px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  .compact.action { margin-top: 0; white-space: nowrap; }
+  .metadata-picker { display: grid; gap: 6px; max-width: 440px; margin-top: 20px; }
+  .metadata-picker label { color: var(--secondary); font-size: 13px; }
+  .metadata-picker select { height: 40px; padding: 0 12px; border: 1px solid #E5E5E5; border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; }
+  .metadata-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .compact-field { max-width: none; }
+  .compact-field textarea { min-height: 130px; font-size: 14px; line-height: 20px; }
+  @media (max-width: 760px) { .metadata-fields { grid-template-columns: 1fr; } .section-line { display: block; } .compact.action { margin-top: 12px; } }

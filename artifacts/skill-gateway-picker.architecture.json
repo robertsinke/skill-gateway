@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Skill Gateway Picker",
+    "locale": "en",
+    "output": "artifacts/skill-gateway-picker.architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "picker-flow",
+        "label": "Live skill picker",
+        "focus": ["author", "pi", "extension", "gateway", "catalog"],
+        "note": "Follow the metadata-only autocomplete flow in Pi."
+      },
+      {
+        "id": "exact-read",
+        "label": "Exact skill read",
+        "focus": ["extension", "agent", "gateway", "library"],
+        "note": "See how the selected identifier and the remaining request reach the agent."
+      }
+    ]
+  },
+  "components": [
+    { "id": "author", "type": "external", "label": "User", "sublabel": "skill + request", "pos": [40, 240], "size": [130, 70] },
+    { "id": "pi", "type": "frontend", "label": "Pi TUI", "sublabel": "composer", "pos": [270, 240], "size": [145, 70] },
+    { "id": "extension", "type": "frontend", "label": "Picker extension", "sublabel": "\\ prefix · completion", "pos": [510, 240], "size": [175, 82] },
+    { "id": "gateway", "type": "backend", "label": "Skill Gateway", "sublabel": "HTTP / MCP · 127.0.0.1:8742", "pos": [800, 240], "size": [190, 82] },
+    { "id": "agent", "type": "external", "label": "Pi agent / model", "sublabel": "reads selected skill", "pos": [1080, 70], "size": [170, 82] },
+    { "id": "catalog", "type": "backend", "label": "Metadata catalog", "sublabel": "rank names + descriptions", "pos": [800, 500], "size": [180, 74] },
+    { "id": "library", "type": "database", "label": "Private skill library", "sublabel": "SKILL.md files", "pos": [1080, 500], "size": [185, 84] },
+    { "id": "launch-agent", "type": "backend", "label": "macOS LaunchAgent", "sublabel": "starts Node MCP server", "pos": [510, 500], "size": [180, 74] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local private Skill Gateway runtime", "wraps": ["gateway", "catalog", "library", "launch-agent"], "pad": 28 }
+  ],
+  "connections": [
+    { "id": "author-to-pi", "from": "author", "to": "pi", "label": "types \\skill + request", "labelAt": [220, 210], "variant": "emphasis" },
+    { "id": "pi-to-extension", "from": "pi", "to": "extension", "label": "composer input", "labelAt": [462, 210] },
+    { "id": "extension-to-gateway-suggest", "from": "extension", "to": "gateway", "label": "suggest names / descriptions", "labelAt": [742, 205] },
+    { "id": "gateway-to-catalog", "from": "gateway", "to": "catalog", "label": "rank metadata", "fromSide": "bottom", "toSide": "top", "labelAt": [870, 390] },
+    { "id": "extension-to-agent", "from": "extension", "to": "agent", "label": "selected name + request", "fromSide": "top", "toSide": "left", "labelAt": [825, 150], "variant": "emphasis" },
+    { "id": "agent-to-gateway-read", "from": "agent", "to": "gateway", "label": "skills_read_skill(exact name)", "labelAt": [900, 185] },
+    { "id": "gateway-to-library", "from": "gateway", "to": "library", "label": "read exact SKILL.md", "labelAt": [1130, 410] },
+    { "id": "launch-agent-starts-gateway", "from": "launch-agent", "to": "gateway", "label": "starts server", "labelAt": [710, 400], "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Picker surface", "items": ["Autocomplete uses skills_suggest_library and returns names + descriptions only", "A fixed 20-row panel keeps the composer steady", "Text after \\skill-name is preserved as the request"] },
+    { "dot": "rose", "title": "Read boundary", "items": ["The Pi agent calls skills_read_skill with the exact selected name", "Gateway returns one unambiguous SKILL.md; its body is never in autocomplete"] },
+    { "dot": "emerald", "title": "Local runtime", "items": ["LaunchAgent starts the Node HTTP/MCP process", "MCP binds to 127.0.0.1:8742/mcp"] }
+  ]
+}

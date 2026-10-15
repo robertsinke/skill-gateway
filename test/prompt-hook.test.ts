@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { handle } from "../src/prompt-hook.ts";
 
 const HOOK = fileURLToPath(new URL("../src/prompt-hook.ts", import.meta.url));
 
@@ -24,12 +25,98 @@ function run(root: string, payload: unknown, env: NodeJS.ProcessEnv = {}) {
       ...process.env,
       SKILL_GATEWAY_ROOT: root,
       SKILL_GATEWAY_LOG: "-",
+      SKILL_GATEWAY_EVENTS: "-",
+      SKILL_GATEWAY_GATE_MODE: "off",
       ...env,
     },
   });
 }
 
 describe("prompt hook", () => {
+  it("injects candidates only when the gate passes and logs suppressed candidates separately", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-"));
+    const logFile = join(root, "queries.jsonl");
+    const eventsFile = join(root, "usage-events.jsonl");
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    const env = { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_LOG: logFile, SKILL_GATEWAY_EVENTS: eventsFile };
+    let seenPrompt = "";
+    let seenCandidates: string[] = [];
+    const gate = async (prompt: string, candidates: { name: string; description: string }[]) => {
+      seenPrompt = prompt;
+      seenCandidates = candidates.map((candidate) => candidate.name);
+      return { status: "reject" as const, probability: 0.2, model: "jev-1.13.0" };
+    };
+    const output = JSON.parse(await handle({ prompt: "please schedule a meeting" }, env, gate));
+    assert.equal(seenPrompt, "please schedule a meeting");
+    assert.deepEqual(seenCandidates, ["calendar"]);
+    assert.equal(output.systemMessage, "");
+    assert.equal(output.hookSpecificOutput.additionalContext, "");
+    const entry = JSON.parse(readFileSync(logFile, "utf8"));
+    assert.deepEqual(entry.skills, []);
+    assert.deepEqual(entry.gate, { status: "reject", model: "jev-1.13.0", probability: 0.2, candidates: ["calendar"] });
+    const event = JSON.parse(readFileSync(eventsFile, "utf8"));
+    assert.equal(event.event_type, "gate_decision");
+    assert.equal(event.gate_status, "reject");
+    assert.deepEqual(event.candidate_names, ["calendar"]);
+    assert.deepEqual(event.injected_skill_names, []);
+    assert.equal(event.session_id, "");
+    assert.equal(JSON.stringify(event).includes("please schedule a meeting"), false);
+  });
+
+  it("captures turn identity, retrieval ranks, and Jev token usage without persisting the prompt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-"));
+    const logFile = join(root, "queries.jsonl");
+    const eventsFile = join(root, "usage-events.jsonl");
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    const output = JSON.parse(await handle({
+      prompt: "please schedule a meeting",
+      session_id: "session-9",
+      turn_id: "pi-run-9",
+      turn_id_source: "pi_hooks_use_bridge",
+      agent: "pi",
+    }, { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_LOG: logFile, SKILL_GATEWAY_EVENTS: eventsFile }, async () => ({
+      status: "pass", probability: 0.9, model: "jev-1.13.0", request_attempted: true, input_tokens: 42, output_tokens: 1,
+    })));
+    assert.match(output.hookSpecificOutput.additionalContext, /calendar/);
+    const event = JSON.parse(readFileSync(eventsFile, "utf8"));
+    assert.equal(event.turn_id, "pi-run-9");
+    assert.equal(event.turn_id_source, "pi_hooks_use_bridge");
+    assert.equal(event.request_attempted, true);
+    assert.equal(event.input_tokens, 42);
+    assert.equal(event.input_tokens_source, "typesafe_usage");
+    assert.equal(event.jev_list_cost_usd, 0.000001764);
+    assert.equal(event.cost_basis, "reported_input_tokens");
+    assert.equal(event.cost_rate_usd_per_million_input_tokens, 0.042);
+    assert.equal(event.candidate_rankings[0].name, "calendar");
+    assert.equal(typeof event.candidate_rankings[0].search_score, "number");
+    assert.equal(JSON.stringify(event).includes("please schedule a meeting"), false);
+    assert.equal(JSON.parse(readFileSync(logFile, "utf8")).turn_id, "pi-run-9");
+  });
+
+  it("fails closed when the gate errors", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-"));
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    const output = JSON.parse(await handle(
+      { prompt: "please schedule a meeting" },
+      { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_EVENTS: "-" },
+      async () => ({ status: "error", probability: null, model: "jev-1.13.0", reason: "timeout" }),
+    ));
+    assert.equal(output.systemMessage, "");
+    assert.equal(output.hookSpecificOutput.additionalContext, "");
+  });
+
+  it("injects the shortlist when the gate passes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-"));
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    const output = JSON.parse(await handle(
+      { prompt: "please schedule the quarterly offsite", turn_id: "turn-1" },
+      { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_EVENTS: "-" },
+      async () => ({ status: "pass", probability: 0.9, model: "jev-1.13.0" }),
+    ));
+    assert.match(output.hookSpecificOutput.additionalContext, /calendar/);
+    assert.equal(output.systemMessage, output.hookSpecificOutput.additionalContext);
+  });
+
   it("injects a shortlist without copying the prompt into additional context", () => {
     const prompt = "please schedule the quarterly offsite";
     const root = mkdtempSync(join(tmpdir(), "hook-"));
@@ -75,19 +162,16 @@ describe("prompt hook", () => {
     assert.match(output.systemMessage, /calendar/);
   });
 
-  it("still explains how to search when the shortlist is empty", () => {
+  it("does not inject an empty shortlist when search has no hits", () => {
     const root = mkdtempSync(join(tmpdir(), "hook-"));
     skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
     const proc = run(root, { prompt: "purple zircon teapot" });
     const output = JSON.parse(proc.stdout);
-    const context = output.hookSpecificOutput.additionalContext as string;
-    assert.match(context, /shortlist is empty/);
-    assert.match(context, /dist\/search\.js "<query>" --limit 10/);
-    assert.equal(context.includes("calendar"), false);
-    assert.ok(output.systemMessage.includes(context));
+    assert.equal(output.systemMessage, "");
+    assert.equal(output.hookSpecificOutput.additionalContext, "");
   });
 
-  it("caps the shortlist at 20", () => {
+  it("caps the shortlist at five by default", () => {
     const root = mkdtempSync(join(tmpdir(), "hook-"));
     for (let index = 0; index < 25; index += 1) {
       const name = `skill-${String(index).padStart(2, "0")}`;
@@ -95,7 +179,7 @@ describe("prompt hook", () => {
     }
     const proc = run(root, { userPrompt: "alpha signal" });
     const context = JSON.parse(proc.stdout).hookSpecificOutput.additionalContext as string;
-    assert.equal(context.split("\n- ").length - 1, 20);
+    assert.equal(context.split("\n- ").length - 1, 5);
   });
 
   it("fails open on malformed JSON and a missing library", () => {

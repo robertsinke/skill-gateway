@@ -29,7 +29,7 @@ describe("HTTP MCP server", () => {
     });
     assert.equal(initialize.status, 200);
     assert.ok(initialize.headers.get("mcp-session-id"));
-    assert.match(await initialize.text(), /skills_mcp/);
+    assert.match(await initialize.text(), /skill-gateway-mcp-server/);
 
     await new Promise<void>((resolve, reject) => app.server.close((error) => (error ? reject(error) : resolve())));
   });

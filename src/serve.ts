@@ -9,6 +9,8 @@ import { DEFAULT_LOG } from "./query-log.ts";
 import { gather, gatherPlace, listPlaces, removeCopies } from "./scan.ts";
 import { DEFAULT_ROOT, SearchError, defaultRoots, loadCatalog, loadMerged } from "./search.ts";
 import { loadIndex } from "./sources.ts";
+import { loadMetadata, metadataPath, saveMetadata, validateMetadata } from "./metadata.ts";
+import { removeTypeSafeKey, saveTypeSafeKey, secretStatus } from "./secrets.ts";
 
 export const HOST = "127.0.0.1";
 export const PORT = 8741;
@@ -185,12 +187,48 @@ export function start(host = HOST, port = PORT) {
         sendJson(response, readRecent(logPath() ?? DEFAULT_LOG));
         return;
       }
+      if (request.method === "GET" && url.pathname === "/api/settings") {
+        sendJson(response, { typesafe: secretStatus(), shortlist_limit: Number(process.env.SKILL_GATEWAY_LIMIT ?? 5), metadata_path: metadataPath() });
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/metadata") {
+        sendJson(response, { path: metadataPath(), metadata: loadMetadata() });
+        return;
+      }
+      if (request.method === "DELETE" && url.pathname === "/api/settings/typesafe-key") {
+        removeTypeSafeKey();
+        sendJson(response, { typesafe: secretStatus() });
+        return;
+      }
+      if (request.method === "DELETE" && url.pathname === "/api/metadata") {
+        const name = String(url.searchParams.get("name") ?? "").trim();
+        if (!name) throw new SearchError("name is required");
+        const metadata = loadMetadata();
+        delete metadata[name];
+        saveMetadata(metadata);
+        sendJson(response, { metadata });
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/api/scan/places") {
         sendJson(response, listPlaces());
         return;
       }
       if (request.method === "POST") {
         const body = await readBody(request);
+        if (url.pathname === "/api/settings/typesafe-key") {
+          saveTypeSafeKey(String(body.key ?? ""));
+          sendJson(response, { typesafe: secretStatus() });
+          return;
+        }
+        if (url.pathname === "/api/metadata") {
+          const name = String(body.name ?? "").trim();
+          if (!name) throw new SearchError("name is required");
+          const metadata = loadMetadata();
+          metadata[name] = validateMetadata(body.metadata);
+          saveMetadata(metadata);
+          sendJson(response, { metadata });
+          return;
+        }
         if (url.pathname === "/api/preview") {
           const name = String(body.name ?? "").trim();
           const description = String(body.description ?? "");

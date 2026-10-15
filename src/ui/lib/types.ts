@@ -1,4 +1,4 @@
-export type View = "home" | "skills" | "router" | "analytics";
+export type View = "home" | "skills" | "router" | "analytics" | "settings";
 
 export type SortKey = "name" | "description" | "source" | "added" | "uses" | "status";
 

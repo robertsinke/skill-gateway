@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { exactLookup, rank } from "./rank.ts";
 import { DEFAULT_ROOT, SearchError, defaultRoots, loadCatalog, loadMerged } from "./search.ts";
+import { searchSkillUsageTurns, updateSkillUsageFeedback } from "./skill-usage-feedback.ts";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 20;
@@ -72,12 +73,45 @@ export function suggestLibrary(query: string, options: { limit?: number; root?: 
       results: [{ name: exact.name, description: exact.description }],
     };
   }
-  const payload = page(normalizedQuery, limit, 0, options.root, catalog);
-  return {
-    query: normalizedQuery,
-    total: payload.total,
-    results: payload.results.map(({ name, description }) => ({ name, description })),
-  };
+  const prefix = normalizedQuery.toLowerCase().replace(/\*+$/, "");
+  const isPrefixQuery = /^[a-z0-9]+$/.test(prefix);
+  const startsWithPrefix = (text: string): boolean =>
+    isPrefixQuery && (text.normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase().match(/[a-z0-9]+/g) ?? [])
+      .some((token) => token.startsWith(prefix));
+  const named = isPrefixQuery ? catalog.filter(({ document }) => startsWithPrefix(document.name)) : [];
+  const ranked = page(normalizedQuery, Math.max(catalog.length, limit), 0, options.root, catalog);
+
+  if (named.length > 0) {
+    const namedResults = named.map(({ document }) => ({ name: document.name, description: document.description }));
+    const namedNames = new Set(namedResults.map(({ name }) => name));
+    const rankedResults = ranked.results
+      .filter(({ name }) => !namedNames.has(name))
+      .map(({ name, description }) => ({ name, description }));
+    const results = [...namedResults, ...rankedResults];
+    return { query: normalizedQuery, total: results.length, results: results.slice(0, limit) };
+  }
+
+  if (ranked.results.length > 0) {
+    return {
+      query: normalizedQuery,
+      total: ranked.total,
+      results: ranked.results.slice(0, limit).map(({ name, description }) => ({ name, description })),
+    };
+  }
+
+  if (isPrefixQuery) {
+    const described = catalog.filter(({ document }) => startsWithPrefix(document.description));
+    return {
+      query: normalizedQuery,
+      total: described.length,
+      results: described.slice(0, limit).map(({ document }) => ({
+        name: document.name,
+        description: document.description,
+      })),
+    };
+  }
+
+  return { query: normalizedQuery, total: 0, results: [] };
 }
 
 export function lookupSkill(name: string, options: { format?: "markdown" | "json"; root?: string } = {}): string {
@@ -182,8 +216,22 @@ function missingLibrary(error: SearchError): string {
 }
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "skills_mcp", version: "1.0.0", title: "Skill library" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "skill-gateway-mcp-server", version: "1.0.0", title: "Skill Gateway" }, { instructions: INSTRUCTIONS });
   const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  const feedbackSummarySchema = z.object({
+    schema_version: z.literal(2),
+    event_type: z.literal("skill_usage_feedback"),
+    event_id: z.string(),
+    timestamp: z.string(),
+    user_id: z.string().nullable(),
+    session_id: z.string(),
+    turn_id: z.string(),
+    shortlist_rating: z.enum(["helpful", "not_helpful"]).nullable(),
+    should_not_inject_skill_names: z.array(z.string()),
+    should_not_load_skill_names: z.array(z.string()),
+    comment_present: z.boolean(),
+    comment_source: z.enum(["user_verbatim", "assistant_paraphrase"]).nullable(),
+  });
   server.registerResource(
     "skill-search-ui",
     SEARCH_UI_URI,
@@ -294,6 +342,86 @@ export function createServer(): McpServer {
     async ({ name, response_format }) => ({
       content: [{ type: "text", text: readSkill(name, { format: response_format }) }],
     }),
+  );
+  server.registerTool(
+    "usage_feedback_search_turns",
+    {
+      title: "Search skill usage turns",
+      description: "Search local gate, injection, verified skill-load, and feedback records. Filters are applied locally; results expose IDs and skill/gate metadata, never the stored prompt text or feedback comment. Turn identity is the exact user/session/turn tuple.",
+      inputSchema: {
+        query: z.string().max(4000).optional(),
+        user_id: z.string().max(200).nullable().optional(),
+        session_id: z.string().max(200).optional(),
+        turn_id: z.string().max(200).optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+      },
+      outputSchema: {
+        total: z.number().int(),
+        count: z.number().int(),
+        results: z.array(z.object({
+          user_id: z.string().nullable(),
+          session_id: z.string(),
+          turn_id: z.string(),
+          turn_id_sources: z.array(z.string()),
+          platform: z.string().nullable(),
+          observed_at: z.string().nullable(),
+          query_match_status: z.enum(["matched_hash", "turn_id_only", "hash_mismatch", "ambiguous", "missing_query"]),
+          query_present: z.boolean(),
+          gate_decisions: z.array(z.object({
+            status: z.string().nullable(),
+            probability: z.number().nullable(),
+            threshold: z.number().nullable(),
+            candidate_names: z.array(z.string()),
+            injected_skill_names: z.array(z.string()),
+            input_tokens: z.number().nullable(),
+            jev_list_cost_usd: z.number().nullable(),
+          })),
+          loaded_skill_names: z.array(z.string()),
+          loaded_injected_skill_names: z.array(z.string()),
+          loaded_not_injected_skill_names: z.array(z.string()),
+          feedback: feedbackSummarySchema.nullable(),
+        })),
+      },
+      annotations: { ...readOnly, title: "Search skill usage turns" },
+    },
+    async ({ query, user_id, session_id, turn_id, limit }) => {
+      try {
+        const result = searchSkillUsageTurns({ query, user_id, session_id, turn_id, limit });
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Search failed: ${String(error)}` }], isError: true };
+      }
+    },
+  );
+  server.registerTool(
+    "usage_feedback_update_turn",
+    {
+      title: "Update skill usage feedback",
+      description: "Append a feedback snapshot for one exactly linked turn. A shortlist rating is a separate user-provided learning label; exact skill-name negatives remain explicit. Feedback, including optional comments, is stored in a private local JSONL and included in the local learning dataset. Raw usage events are never modified; search/update return no prompt or comment text.",
+      inputSchema: {
+        user_id: z.string().max(200).nullable(),
+        session_id: z.string().min(1).max(200),
+        turn_id: z.string().min(1).max(200),
+        shortlist_rating: z.enum(["helpful", "not_helpful"]).nullable().optional(),
+        should_not_inject_skill_names: z.array(z.string().min(1).max(200)).max(20).optional(),
+        should_not_load_skill_names: z.array(z.string().min(1).max(200)).max(20).optional(),
+        comment: z.string().max(2000).optional(),
+        comment_source: z.enum(["user_verbatim", "assistant_paraphrase"]).optional(),
+      },
+      outputSchema: {
+        status: z.enum(["created", "updated", "unchanged"]),
+        feedback: feedbackSummarySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Update skill usage feedback" },
+    },
+    async (input) => {
+      try {
+        const result = updateSkillUsageFeedback(input);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Update failed: ${String(error)}` }], isError: true };
+      }
+    },
   );
   return server;
 }

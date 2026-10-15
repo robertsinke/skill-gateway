@@ -1,0 +1,108 @@
+{
+  "gws-gmail": {
+    "capabilities": ["search and read email", "find email threads by person or topic", "send and manage email"],
+    "aliases": ["email thread", "email conversation", "inbox", "message from", "Gmail"]
+  },
+  "ce-slack-research": {
+    "capabilities": ["search Slack messages and threads", "synthesize decisions and discussion arcs"],
+    "aliases": ["Slack thread", "Slack message", "what did we discuss", "team discussion"]
+  },
+  "gws-calendar": {
+    "capabilities": ["inspect and manage calendars and events", "find existing meetings"],
+    "aliases": ["calendar", "meeting", "appointment", "event", "schedule"]
+  },
+  "gws-calendar-insert": {
+    "capabilities": ["create a new calendar event"],
+    "aliases": ["schedule a meeting", "book an appointment", "create an event", "calendar invite", "offsite"]
+  },
+  "goldfish": {
+    "capabilities": ["search on-screen activity and personal memory", "find past conversations and work"],
+    "aliases": ["what was I working on", "find that thing I saw", "past activity"]
+  },
+  "familiar": {
+    "capabilities": ["reconstruct past on-screen activity and session context"],
+    "aliases": ["what happened earlier", "previous session", "recent context"]
+  },
+  "aside-browser": {
+    "capabilities": ["work across logged-in websites and browser pages"],
+    "aliases": ["open website", "logged-in browser", "Gmail in browser", "Slack in browser"],
+    "avoid_when": ["discussing browser architecture without asking to operate a site"]
+  },
+  "human-review": {
+    "capabilities": ["open a running page for human editing and comments"],
+    "aliases": ["review this page", "leave comments", "edit this in the browser"],
+    "avoid_when": ["implementing or debugging a localhost app without asking for human review"]
+  },
+  "tomorrow": {
+    "capabilities": ["build an end-of-day handoff and tomorrow priorities"],
+    "aliases": ["/tomorrow", "tomorrow's priorities", "end of day"]
+  },
+  "today": {
+    "capabilities": ["identify today's priorities and actions"],
+    "aliases": ["/today", "what should I do today", "today's priorities"]
+  },
+  "ce-work": {
+    "capabilities": ["execute a software work plan"],
+    "aliases": ["/ce-work", "implement the plan", "do the work"]
+  },
+  "ce-plan": {
+    "capabilities": ["create a structured implementation plan"],
+    "aliases": ["plan this", "break this down", "implementation plan"]
+  },
+  "open-knowledge": {
+    "capabilities": ["read and edit OpenKnowledge project content"],
+    "aliases": ["OpenKnowledge", "knowledge vault", "markdown knowledge base"]
+  },
+  "icm-architect": {
+    "capabilities": ["design and restructure an agent-walkable context hub"],
+    "aliases": ["context hub", "company brain", "second brain", "organize this workspace"]
+  },
+  "research-with-sources": {
+    "capabilities": ["research against preserved sources and write a cited draft"],
+    "aliases": ["research these sources", "synthesize sources", "gather evidence"]
+  },
+  "manage-skills": {
+    "capabilities": ["install, update, remove, and organize skills"],
+    "aliases": ["remove this skill", "install a skill", "skills library"]
+  },
+  "ce-commit": {
+    "capabilities": ["create a git commit"],
+    "aliases": ["commit", "save changes to git"]
+  },
+  "ce-clean-gone-branches": {
+    "capabilities": ["clean local branches whose remotes are gone"],
+    "aliases": ["clean up branches", "prune branches", "stale worktrees"]
+  },
+  "macos-computer-use": {
+    "capabilities": ["operate the macOS desktop and native apps"],
+    "aliases": ["Mac desktop", "iPhone mirroring", "Apple Watch", "native app"]
+  },
+  "mcp-builder": {
+    "capabilities": ["build an MCP server or integration"],
+    "aliases": ["MCP server", "MCP tool", "model context protocol"]
+  },
+  "archify": {
+    "capabilities": ["create validated architecture and workflow diagrams"],
+    "aliases": ["architecture diagram", "draw the layers", "visualize the system"]
+  },
+  "ce-frontend-design": {
+    "capabilities": ["design and implement web interfaces"],
+    "aliases": ["frontend", "web UI", "Svelte", "interface design"]
+  },
+  "visual-design-foundations": {
+    "capabilities": ["improve visual hierarchy, typography, spacing, and color"],
+    "aliases": ["visual polish", "soften corners", "too fat", "design system"]
+  },
+  "defuddle": {
+    "capabilities": ["extract and clean readable content from web pages"],
+    "aliases": ["extract this page", "clean web article", "readability"]
+  },
+  "outreach-draft": {
+    "capabilities": ["qualify companies and draft targeted outreach"],
+    "aliases": ["who should I reach out to", "prospecting", "outreach"]
+  },
+  "none": {
+    "capabilities": ["abstain because no skill should be loaded"],
+    "aliases": ["no skill", "just answer", "simple confirmation"]
+  }
+}

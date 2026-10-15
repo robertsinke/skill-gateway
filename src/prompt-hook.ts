@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { noteFollowup, record, sessionId } from "./query-log.ts";
+import { noteFollowup, record, sessionId, userId } from "./query-log.ts";
+import type { GateAudit } from "./query-log.ts";
+import { evaluateSkillGate, SKILL_GATE_INPUT_PRICE_USD_PER_MILLION_TOKENS, SKILL_GATE_MODEL, SKILL_GATE_THRESHOLD, skillGateListCostUsd, skillGateRequestMetrics, type GateDecision } from "./skill-gate.ts";
+import { appendUsageEvent, promptDigest } from "./usage-events.ts";
 import { search, searchRoots, defaultRoots, SearchError } from "./search.ts";
 
-const LIMIT = 20;
+const LIMIT = parseLimit(process.env.SKILL_GATEWAY_LIMIT, 5);
 
 const ANOTHER_SEARCH = `To search this library again during this same user message, run:
 node ~/.local/share/skill-gateway/dist/search.js "<query>" --limit 10
@@ -13,7 +16,7 @@ Pass the query in the user's words. An empty result means load no library skill.
 If this conversation already loaded a listed skill, reuse it instead of reading it again.
 Read a skill file only when the task matches and it has not been loaded earlier in this conversation.`;
 
-type Hit = { name?: unknown; path?: unknown; description?: unknown };
+type Hit = { name?: unknown; path?: unknown; description?: unknown; score?: unknown };
 
 function empty(): void {
   console.log(
@@ -55,7 +58,13 @@ function searchPrompt(prompt: string, env: NodeJS.ProcessEnv): Hit[] {
   return searchRoots(defaultRoots(), prompt, LIMIT);
 }
 
-export function handle(payload: unknown, env: NodeJS.ProcessEnv = process.env): string {
+export type GateEvaluator = (prompt: string, candidates: { name: string; description: string }[]) => Promise<GateDecision>;
+
+export async function handle(
+  payload: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+  evaluateGate: GateEvaluator = evaluateSkillGate,
+): Promise<string> {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return emptyJson();
   const recordPayload = payload as Record<string, unknown>;
   const prompt = recordPayload.prompt !== undefined && recordPayload.prompt !== null ? recordPayload.prompt : recordPayload.userPrompt;
@@ -67,15 +76,96 @@ export function handle(payload: unknown, env: NodeJS.ProcessEnv = process.env): 
     if (error instanceof SearchError) return emptyJson();
     throw error;
   }
-  const text = formatShortlist(results);
+
   const promptText = prompt.trim();
+  const gateStartedAt = Date.now();
+  const gateResults = results.slice(0, 5);
+  const gateCandidates = gateResults.map((hit) => ({
+    name: String(hit.name ?? "").trim(),
+    description: String(hit.description ?? "").trim(),
+  })).filter((candidate) => candidate.name);
+  const disabled = env.SKILL_GATEWAY_GATE_MODE?.trim().toLowerCase() === "off";
+  let gate: GateAudit;
+  let requestAttempted = false;
+  let decision: GateDecision | undefined;
+  let injectedResults: Hit[] = [];
+  if (results.length === 0) {
+    gate = { status: "no_candidates", model: null, probability: null, candidates: [] };
+  } else if (disabled) {
+    gate = { status: "bypassed", model: null, probability: null, candidates: gateCandidates.map((candidate) => candidate.name) };
+    injectedResults = results;
+  } else {
+    try {
+      decision = await evaluateGate(promptText, gateCandidates);
+    } catch {
+      decision = { status: "error", probability: null, model: SKILL_GATE_MODEL, reason: "gate_exception", request_attempted: true };
+    }
+    requestAttempted = decision.request_attempted ?? true;
+    gate = {
+      status: decision.status,
+      model: decision.model,
+      probability: decision.probability,
+      candidates: gateCandidates.map((candidate) => candidate.name),
+      ...(decision.reason ? { reason: decision.reason } : {}),
+    };
+    if (decision.status === "pass") injectedResults = gateResults;
+  }
+
+  const injectedNames = injectedResults.map((hit) => String(hit.name ?? "").trim()).filter(Boolean);
   try {
     noteFollowup(sessionId(recordPayload), promptText, env);
-    const names = results.map((hit) => String(hit.name ?? "").trim()).filter(Boolean);
-    record(recordPayload, promptText, names, env);
+    record(recordPayload, promptText, injectedNames, env, gate);
   } catch {
-    // The log is best-effort. The shortlist still returns.
+    // The query log is best-effort. Injection still follows the gate decision.
   }
+  try {
+    const turnId = typeof recordPayload.turn_id === "string" ? recordPayload.turn_id : typeof recordPayload.turnId === "string" ? recordPayload.turnId : null;
+    const turnIdSource = typeof recordPayload.turn_id_source === "string" ? recordPayload.turn_id_source : turnId ? "host_payload" : null;
+    const platform = typeof recordPayload.agent === "string" ? recordPayload.agent : null;
+    const requestMetrics = !disabled && gateCandidates.length > 0 ? skillGateRequestMetrics(promptText, gateCandidates) : null;
+    const candidateRankings = gateResults.map((hit, index) => ({
+      rank: index + 1,
+      name: String(hit.name ?? "").trim(),
+      search_score: typeof hit.score === "number" && Number.isFinite(hit.score) ? hit.score : null,
+    })).filter((candidate) => candidate.name);
+    const costTokens = decision?.input_tokens ?? (requestAttempted ? requestMetrics?.estimated_input_tokens : undefined);
+    const jevListCost = requestAttempted && typeof costTokens === "number" ? skillGateListCostUsd(costTokens) : null;
+    const costBasis = !requestAttempted ? "not_sent"
+      : decision?.input_tokens !== undefined ? "reported_input_tokens"
+        : typeof costTokens === "number" ? "estimated_input_tokens" : "unavailable";
+    appendUsageEvent({
+      event_type: "gate_decision",
+      user_id: userId(recordPayload, env),
+      session_id: sessionId(recordPayload),
+      turn_id: turnId,
+      turn_id_source: turnIdSource,
+      platform,
+      prompt_sha256: promptDigest(promptText),
+      candidate_names: gate.candidates,
+      candidate_rankings: candidateRankings,
+      gate_status: gate.status,
+      gate_model: gate.model,
+      probability: gate.probability,
+      threshold: SKILL_GATE_THRESHOLD,
+      injected_skill_names: injectedNames,
+      request_attempted: requestAttempted,
+      ...(requestMetrics ? requestMetrics : {}),
+      ...(decision?.input_tokens !== undefined ? { input_tokens: decision.input_tokens } : {}),
+      ...(decision?.output_tokens !== undefined ? { output_tokens: decision.output_tokens } : {}),
+      input_tokens_source: decision?.input_tokens !== undefined ? "typesafe_usage" : requestAttempted ? "estimated_chars_div_4" : "not_sent",
+      jev_list_cost_usd: jevListCost,
+      cost_basis: costBasis,
+      cost_rate_usd_per_million_input_tokens: SKILL_GATE_INPUT_PRICE_USD_PER_MILLION_TOKENS,
+      cost_rate_source: "https://docs.typesafe.ai/models.md",
+      latency_ms: Math.max(0, Date.now() - gateStartedAt),
+      ...(gate.reason ? { reason: gate.reason } : {}),
+    }, env);
+  } catch {
+    // The event ledger is best-effort and must not affect prompt injection.
+  }
+
+  if (injectedResults.length === 0) return emptyJson();
+  const text = formatShortlist(injectedResults);
   let systemMessage: string;
   if (isPi(recordPayload)) systemMessage = "";
   else if (recordPayload.turn_id) systemMessage = text;
@@ -99,7 +189,12 @@ function emptyJson(): string {
   });
 }
 
-function main(): void {
+function parseLimit(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 20) : fallback;
+}
+
+async function main(): Promise<void> {
   try {
     const raw = readFileSync(0, "utf8");
     let payload: unknown;
@@ -109,7 +204,7 @@ function main(): void {
       empty();
       return;
     }
-    console.log(handle(payload));
+    console.log(await handle(payload));
   } catch {
     empty();
   }
