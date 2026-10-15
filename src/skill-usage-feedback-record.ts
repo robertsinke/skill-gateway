@@ -1,10 +1,11 @@
 export type SkillRelevance = "relevant" | "not_relevant" | "unsure";
 export type SkillRelevanceLabel = { skill_name: string; relevance: SkillRelevance };
 export type SkillNeed = "yes" | "no" | "unsure";
+export type InjectionDecision = "yes" | "no" | "unsure";
 export type ShortlistRating = "helpful" | "not_helpful";
 
 export type SkillUsageFeedbackRecord = {
-  schema_version: 4;
+  schema_version: 5;
   event_type: "skill_usage_feedback";
   event_id: string;
   timestamp: string;
@@ -12,6 +13,7 @@ export type SkillUsageFeedbackRecord = {
   session_id: string;
   turn_id: string;
   user_skill_feedback: SkillRelevanceLabel[];
+  injection_decision: InjectionDecision | null;
   /** Legacy coarse labels are preserved, but the new UI does not collect them. */
   legacy_skill_need: SkillNeed | null;
   legacy_relevant_skill_names: string[];
@@ -54,19 +56,21 @@ export function skillUsageFeedbackKey(userId: string | null, sessionId: string, 
 
 export function parseSkillUsageFeedback(value: unknown): SkillUsageFeedbackRecord | null {
   const row = asRecord(value);
-  if (!row || ![1, 2, 3, 4].includes(row.schema_version as number) || row.event_type !== "skill_usage_feedback") return null;
+  if (!row || ![1, 2, 3, 4, 5].includes(row.schema_version as number) || row.event_type !== "skill_usage_feedback") return null;
   if (typeof row.event_id !== "string" || typeof row.timestamp !== "string") return null;
   if (typeof row.session_id !== "string" || !row.session_id.trim() || typeof row.turn_id !== "string" || !row.turn_id.trim()) return null;
   if (row.user_id !== undefined && row.user_id !== null && typeof row.user_id !== "string") return null;
   if (!Array.isArray(row.should_not_inject_skill_names) || !Array.isArray(row.should_not_load_skill_names)) return null;
-  if (row.schema_version === 4 && !Array.isArray(row.user_skill_feedback)) return null;
+  if ((row.schema_version === 4 || row.schema_version === 5) && !Array.isArray(row.user_skill_feedback)) return null;
+  if (row.schema_version === 5 && (!Object.hasOwn(row, "injection_decision")
+    || (row.injection_decision !== null && row.injection_decision !== "yes" && row.injection_decision !== "no" && row.injection_decision !== "unsure"))) return null;
   const oldSkillNeed = row.legacy_skill_need ?? row.skill_need;
   const legacySkillNeed = oldSkillNeed === "yes" || oldSkillNeed === "no" || oldSkillNeed === "unsure" ? oldSkillNeed : null;
   const rating = row.legacy_shortlist_rating ?? row.shortlist_rating;
-  const userSkillFeedback = row.schema_version === 4 ? relevanceLabels(row.user_skill_feedback) : [];
+  const userSkillFeedback = row.schema_version === 4 || row.schema_version === 5 ? relevanceLabels(row.user_skill_feedback) : [];
   if (userSkillFeedback === null) return null;
   return {
-    schema_version: 4,
+    schema_version: 5,
     event_type: "skill_usage_feedback",
     event_id: row.event_id,
     timestamp: row.timestamp,
@@ -74,6 +78,7 @@ export function parseSkillUsageFeedback(value: unknown): SkillUsageFeedbackRecor
     session_id: row.session_id,
     turn_id: row.turn_id,
     user_skill_feedback: userSkillFeedback,
+    injection_decision: row.injection_decision === "yes" || row.injection_decision === "no" || row.injection_decision === "unsure" ? row.injection_decision : null,
     legacy_skill_need: legacySkillNeed,
     legacy_relevant_skill_names: strings(row.legacy_relevant_skill_names ?? row.relevant_skill_names),
     legacy_missing_skill_names: strings(row.legacy_missing_skill_names ?? row.missing_skill_names),

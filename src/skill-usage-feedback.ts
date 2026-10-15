@@ -6,6 +6,7 @@ import { DEFAULT_LOG } from "./query-log.ts";
 import { DEFAULT_USAGE_EVENTS } from "./usage-events.ts";
 import {
   summarizeSkillUsageFeedback,
+  type InjectionDecision,
   type SkillNeed,
   type SkillRelevance,
   type SkillRelevanceLabel,
@@ -14,7 +15,7 @@ import {
 } from "./skill-usage-feedback-record.ts";
 import { buildUsageTurnDataset, readJsonl } from "./usage-turn-dataset.ts";
 
-export { type SkillNeed, type SkillRelevance, type SkillRelevanceLabel, type SkillUsageFeedbackRecord, type SkillUsageFeedbackSummary } from "./skill-usage-feedback-record.ts";
+export { type InjectionDecision, type SkillNeed, type SkillRelevance, type SkillRelevanceLabel, type SkillUsageFeedbackRecord, type SkillUsageFeedbackSummary } from "./skill-usage-feedback-record.ts";
 export const DEFAULT_SKILL_USAGE_FEEDBACK = `${homedir()}/.local/share/skill-gateway/skill-usage-feedback.jsonl`;
 
 export type SearchSkillUsageTurnsInput = {
@@ -30,6 +31,7 @@ export type UpdateSkillUsageFeedbackInput = {
   session_id: string;
   turn_id: string;
   user_skill_feedback?: SkillRelevanceLabel[];
+  injection_decision?: InjectionDecision | null;
   should_not_inject_skill_names?: string[];
   should_not_load_skill_names?: string[];
   comment?: string;
@@ -132,6 +134,10 @@ export function updateSkillUsageFeedback(
   if (!turn) throw new Error("No exact linked turn found for this user_id, session_id, and turn_id; do not infer a turn from session_id alone.");
 
   const prior = turn.feedback;
+  const injectionDecision = input.injection_decision === undefined ? prior?.injection_decision ?? null : input.injection_decision;
+  if (injectionDecision !== null && injectionDecision !== "yes" && injectionDecision !== "no" && injectionDecision !== "unsure") {
+    throw new Error("injection_decision must be yes, no, or unsure.");
+  }
   const userSkillFeedback = input.user_skill_feedback === undefined
     ? prior?.user_skill_feedback ?? []
     : relevanceLabels(input.user_skill_feedback);
@@ -155,11 +161,12 @@ export function updateSkillUsageFeedback(
     ? prior?.comment_source ?? null
     : comment ? input.comment_source ?? null : null;
   if (comment && !commentSource) throw new Error("Set comment_source to user_verbatim or assistant_paraphrase when recording a comment.");
-  if (!prior && userSkillFeedback.length === 0 && injectedSkillNames.length === 0 && shouldNotLoadSkillNames.length === 0 && comment === null) {
+  if (!prior && userSkillFeedback.length === 0 && injectionDecision === null && injectedSkillNames.length === 0 && shouldNotLoadSkillNames.length === 0 && comment === null) {
     throw new Error("Provide at least one per-skill label, exact unwanted injected/loaded skill, or comment.");
   }
   if (prior
     && JSON.stringify(prior.user_skill_feedback) === JSON.stringify(userSkillFeedback)
+    && prior.injection_decision === injectionDecision
     && JSON.stringify(prior.should_not_inject_skill_names) === JSON.stringify(injectedSkillNames)
     && JSON.stringify(prior.should_not_load_skill_names) === JSON.stringify(shouldNotLoadSkillNames)
     && prior.comment === comment
@@ -168,7 +175,7 @@ export function updateSkillUsageFeedback(
   }
 
   const record: SkillUsageFeedbackRecord = {
-    schema_version: 4,
+    schema_version: 5,
     event_type: "skill_usage_feedback",
     event_id: randomUUID(),
     timestamp: new Date().toISOString(),
@@ -176,6 +183,7 @@ export function updateSkillUsageFeedback(
     session_id: input.session_id,
     turn_id: input.turn_id,
     user_skill_feedback: userSkillFeedback,
+    injection_decision: injectionDecision,
     legacy_skill_need: prior?.legacy_skill_need ?? null,
     legacy_relevant_skill_names: prior?.legacy_relevant_skill_names ?? [],
     legacy_missing_skill_names: prior?.legacy_missing_skill_names ?? [],

@@ -1,4 +1,4 @@
-import type { SkillRelevanceLabel } from "./skill-usage-feedback-record.ts";
+import type { InjectionDecision, SkillRelevanceLabel } from "./skill-usage-feedback-record.ts";
 
 export type FeedbackWidgetAction = "edit";
 type MouseEvent = { type: string; button: string; x: number; y: number; width: number };
@@ -11,14 +11,21 @@ type FeedbackWidget = {
 type FeedbackState = {
   injected_skill_names: string[];
   agent_loaded_skill_names: string[];
+  agent_reads_pending: boolean;
+  injection_decision: InjectionDecision | null;
   user_skill_feedback: SkillRelevanceLabel[];
 };
 
 export function createFeedbackWidget(state: FeedbackState, onAction: (action: FeedbackWidgetAction) => void): FeedbackWidget {
-  const button = state.user_skill_feedback.length ? "[Edit skill labels]" : "[Rate injected skills]";
-  const loaded = state.agent_loaded_skill_names.length ? state.agent_loaded_skill_names.join(", ") : "none observed";
+  const button = state.injection_decision !== null || state.user_skill_feedback.length
+    ? "[Edit skill feedback]"
+    : state.injected_skill_names.length ? "[Rate injected skills]" : "[Rate skill injection]";
+  const loaded = state.agent_loaded_skill_names.length
+    ? `${state.agent_loaded_skill_names.join(", ")} (proxy${state.agent_reads_pending ? "; so far" : ""})`
+    : state.agent_reads_pending ? "pending (proxy)" : "none observed (proxy)";
   const labels = new Set(state.user_skill_feedback.map((item) => item.skill_name));
-  const summary = `Injected: ${state.injected_skill_names.join(", ")}; agent read: ${loaded} (proxy); labels: ${labels.size}/${state.injected_skill_names.length}`;
+  const injected = state.injected_skill_names.length ? state.injected_skill_names.join(", ") : "none";
+  const summary = `Should inject any: ${state.injection_decision ?? "not labeled"}; injected: ${injected}; agent read: ${loaded}; labels: ${labels.size}/${state.injected_skill_names.length}`;
   const line = `${button}  ${summary}`;
   return {
     render(width) {

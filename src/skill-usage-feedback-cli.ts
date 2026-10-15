@@ -45,7 +45,7 @@ function parseSearch(input: Record<string, unknown>): SearchSkillUsageTurnsInput
 }
 
 function parseUpdate(input: Record<string, unknown>): UpdateSkillUsageFeedbackInput {
-  rejectUnknownKeys(input, ["user_id", "session_id", "turn_id", "user_skill_feedback", "should_not_inject_skill_names", "should_not_load_skill_names", "comment", "comment_source"]);
+  rejectUnknownKeys(input, ["user_id", "session_id", "turn_id", "user_skill_feedback", "injection_decision", "should_not_inject_skill_names", "should_not_load_skill_names", "comment", "comment_source"]);
   if (input.user_id !== null && (typeof input.user_id !== "string" || input.user_id.length > 200)) throw new Error("user_id must be null or a string of at most 200 characters.");
   const sessionId = optionalString(input, "session_id", 200);
   const turnId = optionalString(input, "turn_id", 200);
@@ -65,6 +65,10 @@ function parseUpdate(input: Record<string, unknown>): UpdateSkillUsageFeedbackIn
   ))) {
     throw new Error("user_skill_feedback must contain at most 20 {skill_name, relevance} labels.");
   }
+  const injectionDecision = input.injection_decision;
+  if (injectionDecision !== undefined && injectionDecision !== null && injectionDecision !== "yes" && injectionDecision !== "no" && injectionDecision !== "unsure") {
+    throw new Error("injection_decision must be yes, no, unsure, or null.");
+  }
   const shouldNotInject = skillNames("should_not_inject_skill_names");
   const shouldNotLoad = skillNames("should_not_load_skill_names");
   const comment = optionalString(input, "comment", 2000);
@@ -77,6 +81,7 @@ function parseUpdate(input: Record<string, unknown>): UpdateSkillUsageFeedbackIn
     session_id: sessionId,
     turn_id: turnId,
     ...(userSkillFeedback !== undefined ? { user_skill_feedback: userSkillFeedback as UpdateSkillUsageFeedbackInput["user_skill_feedback"] } : {}),
+    ...(injectionDecision !== undefined ? { injection_decision: injectionDecision as UpdateSkillUsageFeedbackInput["injection_decision"] } : {}),
     ...(shouldNotInject !== undefined ? { should_not_inject_skill_names: shouldNotInject } : {}),
     ...(shouldNotLoad !== undefined ? { should_not_load_skill_names: shouldNotLoad } : {}),
     ...(comment !== undefined ? { comment } : {}),

@@ -29,7 +29,7 @@ type GateObservation = {
 };
 
 type TurnRow = {
-  schema_version: 4;
+  schema_version: 5;
   user_id: string | null;
   session_id: string;
   turn_id: string;
@@ -175,7 +175,7 @@ export function buildUsageTurnDataset(events: unknown[], queryRows: unknown[], f
     const identitySourceRows = [...gates, ...loads];
     const sources = [...new Set(identitySourceRows.map((row) => text(row.turn_id_source)).filter((item): item is string => Boolean(item)))];
     return {
-      schema_version: 4,
+      schema_version: 5,
       user_id: text(first?.user_id),
       session_id: String(first?.session_id ?? ""),
       turn_id: String(first?.turn_id ?? ""),
@@ -198,12 +198,13 @@ export function buildUsageTurnDataset(events: unknown[], queryRows: unknown[], f
   return {
     rows,
     metadata: {
-      schema_version: 4,
+      schema_version: 5,
       generated_at: new Date().toISOString(),
       turn_count: rows.length,
       turns_with_gate_decision: rows.filter((row) => row.gate_decisions.length > 0).length,
       turns_with_verified_load: rows.filter((row) => row.verified_load_count > 0).length,
       turns_with_explicit_feedback: rows.filter((row) => row.feedback !== null).length,
+      turns_with_injection_decision: rows.filter((row) => row.feedback?.injection_decision !== null && row.feedback?.injection_decision !== undefined).length,
       turns_with_user_skill_feedback: rows.filter((row) => (row.feedback?.user_skill_feedback.length ?? 0) > 0).length,
       turns_with_relevant_skill_feedback: rows.filter((row) => row.feedback?.user_skill_feedback.some((item) => item.relevance === "relevant") ?? false).length,
       turns_with_not_relevant_skill_feedback: rows.filter((row) => row.feedback?.user_skill_feedback.some((item) => item.relevance === "not_relevant") ?? false).length,

@@ -115,11 +115,27 @@ function recordedInjectedNames(event: Record<string, unknown> | undefined): stri
     : [];
 }
 
-function showFeedbackWidget(ctx: ExtensionContext, debug: GateDebug): void {
+function isSkillReadTool(toolName: string, args: unknown): boolean {
+  const normalized = toolName.toLowerCase().split("__").at(-1)?.trim() ?? "";
+  if (["skill", "skills_read_skill", "read_skill", "load_skill", "skills.load", "skill_read"].includes(normalized)
+    || normalized.includes("read_skill") || normalized.includes("load_skill")) return true;
+  if (normalized !== "read" && normalized !== "read_file") return false;
+  const input = typeof args === "string" ? (() => {
+    try { return JSON.parse(args) as unknown; } catch { return null; }
+  })() : args;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  return Object.entries(input).some(([key, value]) =>
+    /(?:path|file)$/i.test(key)
+      && typeof value === "string"
+      && /(?:^|[\\/])(?:library|skills)[\\/][A-Za-z0-9_.-]+[\\/]SKILL\.md$/i.test(value),
+  );
+}
+
+function showFeedbackWidget(ctx: ExtensionContext, debug: GateDebug, agentReadsPending = false): void {
   if (!ctx.hasUI || ctx.mode !== "tui") return;
   const identity = feedbackIdentity(debug.event);
   const injectedNames = recordedInjectedNames(debug.event);
-  if (!identity || injectedNames.length === 0) {
+  if (!identity) {
     ctx.ui.setWidget("skill-gateway-feedback", undefined);
     return;
   }
@@ -127,12 +143,14 @@ function showFeedbackWidget(ctx: ExtensionContext, debug: GateDebug): void {
   const state = {
     injected_skill_names: injectedNames,
     agent_loaded_skill_names: turn?.loaded_injected_skill_names ?? [],
+    agent_reads_pending: agentReadsPending,
+    injection_decision: turn?.feedback?.injection_decision ?? null,
     user_skill_feedback: turn?.feedback?.user_skill_feedback ?? [],
   };
   ctx.ui.setWidget("skill-gateway-feedback", (_tui: unknown, _theme: unknown) => createFeedbackWidget(
     state,
-    () => void collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug)),
-  ), { placement: "belowEditor" });
+    () => void collectSkillFeedback(ctx, identity, debug, () => showFeedbackWidget(ctx, debug, agentReadsPending)),
+  ), { placement: "aboveEditor" });
 }
 
 async function collectSkillFeedback(
@@ -142,12 +160,19 @@ async function collectSkillFeedback(
   refresh: () => void,
 ): Promise<void> {
   const injectedNames = recordedInjectedNames(debug.event);
-  if (injectedNames.length === 0) {
-    ctx.ui.notify("This turn has no injected skill names to label.", "warning");
-    return;
-  }
   try {
     const turn = currentTurn(identity);
+    const previousDecision = turn?.feedback?.injection_decision ?? null;
+    let injectionDecision = previousDecision;
+    const decisionOptions = ["Yes", "No", "Unsure", "Skip"];
+    if (previousDecision !== null) decisionOptions.push("Clear prior answer");
+    const decisionChoice = await ctx.ui.select("Should any skills have been injected for this turn?", decisionOptions);
+    if (!decisionChoice) return;
+    if (decisionChoice === "Yes") injectionDecision = "yes";
+    else if (decisionChoice === "No") injectionDecision = "no";
+    else if (decisionChoice === "Unsure") injectionDecision = "unsure";
+    else if (decisionChoice === "Clear prior answer") injectionDecision = null;
+
     const previous = turn?.feedback?.user_skill_feedback ?? [];
     const labels = new Map(previous.map((item) => [item.skill_name, item.relevance]));
     const agentLoaded = new Set(turn?.loaded_injected_skill_names ?? []);
@@ -168,12 +193,12 @@ async function collectSkillFeedback(
       const relevance = labels.get(skill_name);
       return relevance ? [{ skill_name, relevance }] : [];
     });
-    if (JSON.stringify(previous) === JSON.stringify(userSkillFeedback)) {
-      ctx.ui.notify("No per-skill feedback changed.", "info");
+    if (previousDecision === injectionDecision && JSON.stringify(previous) === JSON.stringify(userSkillFeedback)) {
+      ctx.ui.notify("No skill feedback changed.", "info");
       return;
     }
-    const result = updateSkillUsageFeedback({ ...identity, user_skill_feedback: userSkillFeedback });
-    ctx.ui.notify(result.status === "unchanged" ? "Per-skill feedback is already saved." : "Saved per-skill relevance feedback locally.", "info");
+    const result = updateSkillUsageFeedback({ ...identity, injection_decision: injectionDecision, user_skill_feedback: userSkillFeedback });
+    ctx.ui.notify(result.status === "unchanged" ? "Skill feedback is already saved." : "Saved injection and per-skill feedback locally.", "info");
     refresh();
   } catch (error) {
     ctx.ui.notify(`Could not save per-skill feedback: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -182,12 +207,12 @@ async function collectSkillFeedback(
 
 function showSkillFeedbackCommand(pi: ExtensionAPI, getDebug: () => GateDebug | undefined): void {
   pi.registerCommand("skill-feedback", {
-    description: "Rate the relevance of each injected skill; compare against verified agent reads",
+    description: "Rate whether any skills should have been injected, then rate each injected skill against verified agent reads",
     handler: async (_args, ctx: ExtensionCommandContext) => {
       const debug = getDebug();
       const identity = feedbackIdentity(debug?.event);
       if (!debug || !identity) {
-        ctx.ui.notify("No exactly linked injected skill list is available for this turn.", "warning");
+        ctx.ui.notify("No exactly linked skill-gate decision is available for this turn.", "warning");
         return;
       }
       if (!ctx.hasUI) {
@@ -324,6 +349,12 @@ export default function (pi: ExtensionAPI): void {
     const eventNames = recordedCandidateNames(event);
     gateDebug = { ...gateDebug, event, candidatesMatch: JSON.stringify(localNames) === JSON.stringify(eventNames) };
     ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event));
+    showFeedbackWidget(ctx, gateDebug, true);
+  });
+
+  pi.on("tool_execution_end", (event, ctx) => {
+    if (!gateDebug?.event || !isSkillReadTool(event.toolName, event.args)) return;
+    showFeedbackWidget(ctx, gateDebug, true);
   });
 
   showGateDetails(pi, () => gateDebug);
@@ -359,7 +390,7 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.on("turn_end", (_event, ctx) => {
-    if (gateDebug?.event) showFeedbackWidget(ctx, gateDebug);
+    if (gateDebug?.event) showFeedbackWidget(ctx, gateDebug, false);
   });
 
   pi.on("session_start", (_event, ctx) => {

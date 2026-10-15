@@ -45,6 +45,7 @@ describe("skill usage feedback CLI", () => {
         session_id: "session-a",
         turn_id: "turn-a",
         user_skill_feedback: [{ skill_name: "calendar", relevance: "relevant" }],
+        injection_decision: "no",
         comment: "Calendar fit this search.",
         comment_source: "assistant_paraphrase",
       };
@@ -53,7 +54,8 @@ describe("skill usage feedback CLI", () => {
       assert.equal(updateOutput.includes("Calendar fit this search."), false);
       const stored = JSON.parse(readFileSync(feedback, "utf8"));
       assert.deepEqual(stored.should_not_inject_skill_names, []);
-      assert.equal(stored.schema_version, 4);
+      assert.equal(stored.schema_version, 5);
+      assert.equal(stored.injection_decision, "no");
       assert.deepEqual(stored.user_skill_feedback, [{ skill_name: "calendar", relevance: "relevant" }]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

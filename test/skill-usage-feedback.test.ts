@@ -124,12 +124,14 @@ describe("skill usage feedback", () => {
           { skill_name: "calendar", relevance: "relevant" as const },
           { skill_name: "invoice-review", relevance: "unsure" as const },
         ],
+        injection_decision: "yes" as const,
         comment: "The user marked calendar relevant.",
         comment_source: "assistant_paraphrase" as const,
       };
       const created = updateSkillUsageFeedback(input, env);
       assert.equal(created.status, "created");
-      assert.equal(created.feedback.schema_version, 4);
+      assert.equal(created.feedback.schema_version, 5);
+      assert.equal(created.feedback.injection_decision, "yes");
       assert.equal(created.feedback.comment_present, true);
       assert.equal(JSON.stringify(created).includes(input.comment), false);
       assert.equal(statSync(feedback).mode & 0o777, 0o600);
@@ -145,6 +147,7 @@ describe("skill usage feedback", () => {
       }, env);
       assert.equal(updated.status, "updated");
       assert.equal(updated.feedback.comment_present, true);
+      assert.equal(updated.feedback.injection_decision, "yes");
       assert.deepEqual(updated.feedback.user_skill_feedback, [{ skill_name: "calendar", relevance: "unsure" }]);
       assert.equal(readFileSync(events, "utf8"), beforeEvents);
       assert.equal(readFileSync(queries, "utf8"), beforeQueries);

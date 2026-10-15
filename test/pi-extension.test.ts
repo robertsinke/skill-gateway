@@ -24,7 +24,7 @@ describe("Pi skill picker extension", () => {
     assert.ok(commands.includes("skill-feedback"));
 
     assert.deepEqual(servers, ["skill_gateway"]);
-    assert.deepEqual(events.sort(), ["agent_start", "before_agent_start", "input", "session_start", "turn_end"]);
+    assert.deepEqual(events.sort(), ["agent_start", "before_agent_start", "input", "session_start", "tool_execution_end", "turn_end"]);
   });
 
   it("adds one space after a selected skill and preserves existing suffix text", () => {
@@ -62,8 +62,96 @@ describe("Pi skill picker extension", () => {
       gate_status: "pass", probability: 0.8, threshold: 0.5, timestamp: "2026-10-14T18:00:00.000Z",
     };
     const load = { event_type: "skill_load", user_id: "user-a", session_id: "session-a", turn_id: "turn-a", skill_name: "calendar", timestamp: "2026-10-14T18:00:03.000Z" };
-    writeFileSync(eventsPath, `${JSON.stringify(gate)}\n${JSON.stringify(load)}\n`);
+    writeFileSync(eventsPath, `${JSON.stringify(gate)}\n`);
     writeFileSync(queriesPath, `${JSON.stringify({ user_id: "user-a", session_id: "session-a", turn_id: "turn-a", query: prompt })}\n`);
+    process.env.SKILL_GATEWAY_EVENTS = eventsPath;
+    process.env.SKILL_GATEWAY_LOG = queriesPath;
+    process.env.SKILL_GATEWAY_FEEDBACK = feedbackPath;
+    try {
+      const handlers = new Map<string, (...args: any[]) => unknown>();
+      const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+      const widgets: ((tui: unknown, theme: unknown) => any)[] = [];
+      const placements: string[] = [];
+      extension({
+        registerMcpServer() {},
+        registerCommand(name: string, command: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, command); },
+        on(event: string, handler: (...args: any[]) => unknown) { handlers.set(event, handler); },
+      } as never);
+      const selectionAnswers = ["Yes", "Relevant", "Not relevant"];
+      const questions: string[] = [];
+      const ctx = {
+        hasUI: true,
+        mode: "tui",
+        sessionManager: { getSessionId: () => "session-a" },
+        ui: {
+          setStatus() {},
+          notify() {},
+          async select(question: string) { questions.push(question); return selectionAnswers.shift(); },
+          async input() { return undefined; },
+          setWidget(_key: string, content: unknown, options?: { placement?: string }) {
+            if (typeof content === "function") {
+              widgets.push(content as (tui: unknown, theme: unknown) => any);
+              placements.push(options?.placement ?? "aboveEditor");
+            }
+          },
+        },
+      };
+      handlers.get("before_agent_start")!({ prompt }, ctx);
+      handlers.get("agent_start")!({}, ctx);
+      assert.equal(widgets.length, 1, "feedback should appear as the agent starts, not only at turn end");
+      assert.equal(placements.at(-1), "aboveEditor");
+      const earlyWidget = widgets.at(-1)!( {}, {} );
+      assert.match(earlyWidget.render(240)[0]!, /agent read: pending/);
+
+      writeFileSync(eventsPath, `${JSON.stringify(gate)}\n${JSON.stringify(load)}\n`);
+      await handlers.get("tool_execution_end")!({ toolName: "skill_gateway__skills_read_skill", args: { name: "calendar" } }, ctx);
+      const updatedWidget = widgets.at(-1)!( {}, {} );
+      assert.match(updatedWidget.render(240)[0]!, /agent read: calendar \(proxy; so far\)/);
+
+      handlers.get("turn_end")!({}, ctx);
+      const component = widgets.at(-1)!( {}, {} );
+      assert.match(component.render(120)[0]!, /\[Rate injected skills\]/);
+      assert.match(component.render(120)[0]!, /Should inject any: not labeled/);
+      await commands.get("skill-feedback")!.handler("", ctx);
+      assert.match(questions[0]!, /Should any skills have been injected/);
+      assert.match(questions[1]!, /Was calendar relevant/);
+      const stored = JSON.parse(readFileSync(feedbackPath, "utf8").trim());
+      assert.equal(stored.schema_version, 5);
+      assert.equal(stored.injection_decision, "yes");
+      assert.deepEqual(stored.user_skill_feedback, [
+        { skill_name: "calendar", relevance: "relevant" },
+        { skill_name: "invoice-review", relevance: "not_relevant" },
+      ]);
+      assert.equal(stored.legacy_shortlist_rating, null);
+      assert.equal(stored.legacy_skill_need, null);
+      assert.equal(stored.user_id, "user-a");
+      assert.equal(stored.session_id, "session-a");
+      assert.equal(stored.turn_id, "turn-a");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("collects an overall injection decision even when no skills were injected", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pi-feedback-no-injection-"));
+    const keys = ["SKILL_GATEWAY_EVENTS", "SKILL_GATEWAY_LOG", "SKILL_GATEWAY_FEEDBACK"];
+    const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+    const prompt = "No skill should be needed";
+    const eventsPath = join(directory, "events.jsonl");
+    const queriesPath = join(directory, "queries.jsonl");
+    const feedbackPath = join(directory, "feedback.jsonl");
+    const gate = {
+      event_type: "gate_decision", user_id: "user-a", session_id: "session-zero", turn_id: "turn-zero",
+      prompt_sha256: promptDigest(prompt), candidate_names: [], injected_skill_names: [], gate_status: "no_candidates",
+      probability: 0, threshold: 0.5, timestamp: "2026-10-14T18:00:00.000Z",
+    };
+    writeFileSync(eventsPath, `${JSON.stringify(gate)}\n`);
+    writeFileSync(queriesPath, `${JSON.stringify({ user_id: "user-a", session_id: "session-zero", turn_id: "turn-zero", query: prompt })}\n`);
     process.env.SKILL_GATEWAY_EVENTS = eventsPath;
     process.env.SKILL_GATEWAY_LOG = queriesPath;
     process.env.SKILL_GATEWAY_FEEDBACK = feedbackPath;
@@ -76,37 +164,28 @@ describe("Pi skill picker extension", () => {
         registerCommand(name: string, command: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, command); },
         on(event: string, handler: (...args: any[]) => unknown) { handlers.set(event, handler); },
       } as never);
-      const selectionAnswers = ["Relevant", "Not relevant"];
       const ctx = {
         hasUI: true,
         mode: "tui",
-        sessionManager: { getSessionId: () => "session-a" },
+        sessionManager: { getSessionId: () => "session-zero" },
         ui: {
           setStatus() {},
           notify() {},
-          async select() { return selectionAnswers.shift(); },
+          async select() { return "No"; },
           async input() { return undefined; },
-          setWidget(_key: string, content: unknown) { if (typeof content === "function") widgets.push(content as (tui: unknown, theme: unknown) => any); },
+          setWidget(_key: string, content: unknown) {
+            if (typeof content === "function") widgets.push(content as (tui: unknown, theme: unknown) => any);
+          },
         },
       };
       handlers.get("before_agent_start")!({ prompt }, ctx);
       handlers.get("agent_start")!({}, ctx);
-      handlers.get("turn_end")!({}, ctx);
-      const component = widgets.at(-1)!( {}, {} );
-      assert.match(component.render(120)[0]!, /\[Rate injected skills\]/);
-      assert.match(component.render(120)[0]!, /agent read: calendar \(proxy\)/);
+      assert.equal(widgets.length, 1, "the injection question must remain available on turns with no injected skills");
+      assert.match(widgets[0]!({}, {}).render(160)[0]!, /injected: none/);
       await commands.get("skill-feedback")!.handler("", ctx);
       const stored = JSON.parse(readFileSync(feedbackPath, "utf8").trim());
-      assert.equal(stored.schema_version, 4);
-      assert.deepEqual(stored.user_skill_feedback, [
-        { skill_name: "calendar", relevance: "relevant" },
-        { skill_name: "invoice-review", relevance: "not_relevant" },
-      ]);
-      assert.equal(stored.legacy_shortlist_rating, null);
-      assert.equal(stored.legacy_skill_need, null);
-      assert.equal(stored.user_id, "user-a");
-      assert.equal(stored.session_id, "session-a");
-      assert.equal(stored.turn_id, "turn-a");
+      assert.equal(stored.injection_decision, "no");
+      assert.deepEqual(stored.user_skill_feedback, []);
     } finally {
       rmSync(directory, { recursive: true, force: true });
       for (const key of keys) {

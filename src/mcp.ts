@@ -219,7 +219,7 @@ export function createServer(): McpServer {
   const server = new McpServer({ name: "skill-gateway-mcp-server", version: "1.0.0", title: "Skill Gateway" }, { instructions: INSTRUCTIONS });
   const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   const feedbackSummarySchema = z.object({
-    schema_version: z.literal(4),
+    schema_version: z.literal(5),
     event_type: z.literal("skill_usage_feedback"),
     event_id: z.string(),
     timestamp: z.string(),
@@ -227,6 +227,7 @@ export function createServer(): McpServer {
     session_id: z.string(),
     turn_id: z.string(),
     user_skill_feedback: z.array(z.object({ skill_name: z.string(), relevance: z.enum(["relevant", "not_relevant", "unsure"]) })),
+    injection_decision: z.enum(["yes", "no", "unsure"]).nullable(),
     legacy_skill_need: z.enum(["yes", "no", "unsure"]).nullable(),
     legacy_relevant_skill_names: z.array(z.string()),
     legacy_missing_skill_names: z.array(z.string()),
@@ -348,7 +349,7 @@ export function createServer(): McpServer {
     }),
   );
   server.registerTool(
-    "usage_feedback_search_turns",
+    "search_turns",
     {
       title: "Search skill usage turns",
       description: "Search local gate, injection, verified skill-load, and feedback records. Filters are applied locally; results expose IDs and skill/gate metadata, never the stored prompt text or feedback comment. Turn identity is the exact user/session/turn tuple.",
@@ -398,10 +399,10 @@ export function createServer(): McpServer {
     },
   );
   server.registerTool(
-    "usage_feedback_update_turn",
+    "update_turns",
     {
-      title: "Update skill usage feedback",
-      description: "Append per-skill user feedback for one exactly linked injection. Rate each exact injected skill as relevant, not relevant, or unsure. The agent's verified skill reads remain a separate behavior proxy in the usage dataset. Legacy coarse feedback is preserved but no longer collected. Feedback is stored in a private local JSONL; raw usage events are never modified, and search/update return no prompt or comment text.",
+      title: "Update feedback for turns",
+      description: "Record an overall judgment of whether any skills should have been injected, then per-skill relevance for one exactly linked turn. The agent's verified skill reads remain a separate behavior proxy. Historical legacy feedback is preserved without reinterpretation. Feedback is stored in a private local JSONL; raw usage events are never modified, and search/update return no prompt or comment text.",
       inputSchema: {
         user_id: z.string().max(200).nullable(),
         session_id: z.string().min(1).max(200),
@@ -410,6 +411,7 @@ export function createServer(): McpServer {
           skill_name: z.string().min(1).max(200),
           relevance: z.enum(["relevant", "not_relevant", "unsure"]),
         })).max(20).optional(),
+        injection_decision: z.enum(["yes", "no", "unsure"]).nullable().optional(),
         should_not_inject_skill_names: z.array(z.string().min(1).max(200)).max(20).optional(),
         should_not_load_skill_names: z.array(z.string().min(1).max(200)).max(20).optional(),
         comment: z.string().max(2000).optional(),
@@ -419,7 +421,7 @@ export function createServer(): McpServer {
         status: z.enum(["created", "updated", "unchanged"]),
         feedback: feedbackSummarySchema,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Update skill usage feedback" },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, title: "Update feedback for turns" },
     },
     async (input) => {
       try {

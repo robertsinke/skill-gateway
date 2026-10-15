@@ -52,6 +52,7 @@ describe("usage turn dataset", () => {
 
     assert.equal(result.rows.length, 1);
     const row = result.rows[0]!;
+    assert.equal(row.schema_version, 5);
     assert.equal(row.query, prompt);
     assert.equal(row.query_match_status, "matched_hash");
     assert.deepEqual(row.loaded_skill_names, ["calendar", "weather"]);
@@ -98,12 +99,34 @@ describe("usage turn dataset", () => {
       { skill_name: "travel", relevance: "not_relevant" },
     ]);
     assert.equal(result.rows[0]?.feedback?.comment, "The shortlist missed the useful skill.");
+    assert.equal(result.rows[0]?.feedback?.injection_decision, null);
     assert.equal(JSON.stringify(result.rows[0]).includes("reaction"), false);
     assert.equal(JSON.stringify(result.rows[0]).includes("followup"), false);
     assert.equal(result.metadata.turns_with_user_skill_feedback, 1);
     assert.equal(result.metadata.turns_with_relevant_skill_feedback, 1);
     assert.equal(result.metadata.turns_with_not_relevant_skill_feedback, 1);
+    assert.equal(result.metadata.turns_with_injection_decision, 0);
     assert.deepEqual(result.metadata.unlinked_event_counts, { gate_decisions: 0, skill_loads: 0, queries: 0, feedback_records: 2 });
+  });
+
+  it("joins the overall injection decision as a separate explicit label", () => {
+    const feedback = {
+      schema_version: 5,
+      event_type: "skill_usage_feedback",
+      event_id: "feedback-injection-decision",
+      timestamp: "2026-06-14T10:03:00.000Z",
+      user_id: "robert",
+      session_id: "session-1",
+      turn_id: "pi-run-1",
+      user_skill_feedback: [],
+      injection_decision: "no",
+      should_not_inject_skill_names: [],
+      should_not_load_skill_names: [],
+    };
+    const result = buildUsageTurnDataset([gateEvent()], [], [feedback]);
+    assert.equal(result.rows[0]?.feedback?.injection_decision, "no");
+    assert.deepEqual(result.rows[0]?.feedback?.user_skill_feedback, []);
+    assert.equal(result.metadata.turns_with_injection_decision, 1);
   });
 
   it("preserves legacy whole-shortlist ratings without treating them as per-skill labels", () => {
@@ -142,7 +165,9 @@ describe("usage turn dataset", () => {
     const output = join(directory, "dataset.jsonl");
     writeUsageTurnDataset(result.rows, result.metadata, output);
     assert.equal(JSON.parse(readFileSync(output, "utf8").trim()).query, prompt);
-    assert.equal(JSON.parse(readFileSync(`${output}.meta.json`, "utf8")).turn_count, 1);
+    const metadata = JSON.parse(readFileSync(`${output}.meta.json`, "utf8"));
+    assert.equal(metadata.schema_version, 5);
+    assert.equal(metadata.turn_count, 1);
     assert.equal(statSync(output).mode & 0o777, 0o600);
     assert.equal(statSync(`${output}.meta.json`).mode & 0o777, 0o600);
   });

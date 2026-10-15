@@ -41,10 +41,10 @@ describe("usage feedback MCP tools", () => {
     try {
       await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
       const listed = await client.listTools();
-      assert.ok(listed.tools.some((tool) => tool.name === "usage_feedback_search_turns"));
-      assert.ok(listed.tools.some((tool) => tool.name === "usage_feedback_update_turn"));
+      assert.ok(listed.tools.some((tool) => tool.name === "search_turns"));
+      assert.ok(listed.tools.some((tool) => tool.name === "update_turns"));
 
-      const found = await client.callTool({ name: "usage_feedback_search_turns", arguments: { query: "invoice" } });
+      const found = await client.callTool({ name: "search_turns", arguments: { query: "invoice" } });
       assert.notEqual(found.isError, true);
       const results = (found.structuredContent as { results: Array<Record<string, unknown>> }).results;
       assert.equal(results.length, 1);
@@ -52,7 +52,7 @@ describe("usage feedback MCP tools", () => {
       assert.equal(JSON.stringify(results).includes(prompt), false);
 
       const updated = await client.callTool({
-        name: "usage_feedback_update_turn",
+        name: "update_turns",
         arguments: {
           user_id: "user-a",
           session_id: "session-a",
@@ -61,6 +61,7 @@ describe("usage feedback MCP tools", () => {
             { skill_name: "calendar", relevance: "relevant" },
             { skill_name: "invoice-review", relevance: "not_relevant" },
           ],
+          injection_decision: "yes",
           comment: "Calendar was relevant to the request.",
           comment_source: "assistant_paraphrase",
         },
@@ -68,7 +69,8 @@ describe("usage feedback MCP tools", () => {
       assert.notEqual(updated.isError, true);
       assert.equal(statSync(feedback).mode & 0o777, 0o600);
       const stored = JSON.parse(readFileSync(feedback, "utf8"));
-      assert.equal(stored.schema_version, 4);
+      assert.equal(stored.schema_version, 5);
+      assert.equal(stored.injection_decision, "yes");
       assert.deepEqual(stored.user_skill_feedback, [
         { skill_name: "calendar", relevance: "relevant" },
         { skill_name: "invoice-review", relevance: "not_relevant" },
