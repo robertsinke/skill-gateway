@@ -11,6 +11,9 @@
     "start:mcp:http": "node dist/http-mcp.js",
     "sync:codex-pointers": "node --experimental-strip-types scripts/sync-codex-skill-pointers.ts",
     "build:usage-dataset": "node --experimental-strip-types scripts/build-usage-turn-dataset.ts",
+    "eval:skill-runtime": "node --experimental-strip-types scripts/evaluate-skill-runtime.ts",
+    "eval:skill-runtime:batch": "node --experimental-strip-types scripts/score-skill-runtime-experiment.ts",
+    "eval:skill-rerank": "node --experimental-strip-types scripts/evaluate-skill-rerank.ts",
     "test": "npm run build:ui && node --experimental-strip-types --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig src/ui/tsconfig.json"
   },

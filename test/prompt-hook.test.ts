@@ -105,7 +105,64 @@ describe("prompt hook", () => {
     assert.equal(output.hookSpecificOutput.additionalContext, "");
   });
 
-  it("injects the shortlist when the gate passes", async () => {
+  it("runs shadow reranking after a pass, logs its suggestion, and leaves injection unchanged", async () => {
+  const root = mkdtempSync(join(tmpdir(), "hook-"));
+  const eventsFile = join(root, "usage-events.jsonl");
+  skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+  skill(root, "inbox", "name: inbox\ndescription: read mail threads\n");
+  let rerankCalls = 0;
+  const output = JSON.parse(await handle(
+    { prompt: "schedule a meeting and read mail", turn_id: "turn-shadow" },
+    { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsFile, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_RERANK_MODE: "shadow" },
+    async () => ({ status: "pass", probability: 0.9, model: "jev-1.13.0" }),
+    async (_prompt, candidates) => {
+      rerankCalls++;
+      return { status: "ok", fits: candidates.map((c) => ({ name: c.name, probability: c.name === "calendar" ? 0.9 : 0.05 })), selected: ["calendar"], request_attempted: true, input_tokens: 60, estimated_input_tokens: 60, cost_usd: 0.00000252, latency_ms: 15 };
+    },
+  ));
+  assert.equal(rerankCalls, 1);
+  assert.match(output.hookSpecificOutput.additionalContext, /calendar/);
+  assert.match(output.hookSpecificOutput.additionalContext, /inbox/);
+  const events = readFileSync(eventsFile, "utf8").trim().split("\n").map(JSON.parse);
+  const shadow = events.find((event) => event.event_type === "skill_rerank_shadow");
+  assert.equal(shadow.turn_id, "turn-shadow");
+  assert.deepEqual(shadow.selected_names, ["calendar"]);
+  assert.equal(shadow.input_tokens, 60);
+  assert.equal(JSON.stringify(shadow).includes("schedule a meeting"), false);
+});
+
+it("randomizes by stable session and applies rerank only in treatment", async () => {
+  const root = mkdtempSync(join(tmpdir(), "hook-"));
+  const eventsFile = join(root, "usage-events.jsonl");
+  skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+  skill(root, "inbox", "name: inbox\ndescription: read mail threads\n");
+  let rerankCalls = 0;
+  const gate = async () => ({ status: "pass" as const, probability: 0.9, model: "jev-1.13.0" });
+  let seenPolicy: unknown;
+  const rerank = async (_prompt: string, candidates: { name: string; description: string }[], options?: { judgment?: string; threshold?: number }) => {
+    rerankCalls++; seenPolicy = options;
+    return { status: "ok" as const, fits: candidates.map((c) => ({ name: c.name, probability: c.name === "calendar" ? 0.9 : 0.05 })), selected: ["calendar"], request_attempted: true, estimated_input_tokens: 50, cost_usd: 0.0000021, latency_ms: 10 };
+  };
+  const env = { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsFile, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_RERANK_MODE: "experiment" };
+  const treatment = JSON.parse(await handle({ prompt: "schedule a meeting and read mail", session_id: "session-treatment", turn_id: "treatment-turn" }, env, gate, rerank));
+  const control = JSON.parse(await handle({ prompt: "schedule a meeting and read mail", session_id: "treatment", turn_id: "control-turn" }, env, gate, rerank));
+  assert.equal((treatment.hookSpecificOutput.additionalContext.match(/^- \d+\./gm) ?? []).length, 1);
+  assert.equal((control.hookSpecificOutput.additionalContext.match(/^- \d+\./gm) ?? []).length, 2);
+  assert.equal(rerankCalls, 1);
+  const events = readFileSync(eventsFile, "utf8").trim().split("\n").map(JSON.parse);
+  const treatmentGate = events.find((event) => event.event_type === "gate_decision" && event.turn_id === "treatment-turn");
+  const controlGate = events.find((event) => event.event_type === "gate_decision" && event.turn_id === "control-turn");
+  assert.equal(treatmentGate.experiment_arm, "treatment");
+  assert.deepEqual(seenPolicy, { judgment: "relevance-v2", threshold: 0.1 });
+  assert.equal(treatmentGate.rerank_policy, "relevance-v2-at-0.1");
+  assert.equal(treatmentGate.rerank_threshold, 0.1);
+  assert.equal(controlGate.rerank_policy, "relevance-v2-at-0.1");
+  assert.deepEqual(treatmentGate.rerank_selected_names, ["calendar"]);
+  assert.equal(controlGate.experiment_arm, "control");
+  assert.equal(controlGate.rerank_selected_names, null);
+});
+
+it("injects the shortlist when the gate passes", async () => {
     const root = mkdtempSync(join(tmpdir(), "hook-"));
     skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
     const output = JSON.parse(await handle(
