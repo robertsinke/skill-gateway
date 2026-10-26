@@ -41,6 +41,9 @@ function validFits(value: unknown, candidates: string[]): value is { name: strin
     names.add(item.name); return true;
   });
 }
+function sameNames(left: unknown, right: unknown) {
+  return Array.isArray(left) && Array.isArray(right) && JSON.stringify(left) === JSON.stringify(right);
+}
 
 /** Exact identity joins only. Control arm labels and treatment labels are not assumed comparable. */
 function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
@@ -88,6 +91,10 @@ function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
     if (event.status !== "ok" || !validFits(event.fits, names) || !Array.isArray(selected)
       || !selected.every((name): name is string => typeof name === "string" && names.includes(name))
       || new Set(selected).size !== selected.length) { exclusions.push("invalid_response"); continue; }
+    if (event.event_type === "skill_rerank_experiment"
+      && (!sameNames(selected, gates[0]!.rerank_selected_names) || !sameNames(selected, gates[0]!.injected_skill_names))) {
+      exclusions.push("treatment_selection_mismatch"); continue;
+    }
     const labels = (turn.feedback?.user_skill_feedback ?? []).filter((item) => item.relevance !== "unsure" && names.includes(item.skill_name) && turn.injected_skill_names.includes(item.skill_name))
       .map((item) => ({ name: item.skill_name, relevant: item.relevance === "relevant" }));
     if (!labels.length) { exclusions.push("no_explicit_labels"); continue; }

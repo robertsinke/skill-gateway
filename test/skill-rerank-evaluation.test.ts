@@ -114,7 +114,8 @@ describe("rerank evidence pipeline", () => {
   it("joins live records only by exact identity and matching prompt/candidates", () => {
     const s = sample(); s.gate.experiment_arm = "treatment";
     Object.assign(s.gate, { rerank_policy: CONSERVATIVE_RERANK_TRIAL.id,
-      rerank_judgment: CONSERVATIVE_RERANK_TRIAL.judgment, rerank_threshold: CONSERVATIVE_RERANK_TRIAL.threshold });
+      rerank_judgment: CONSERVATIVE_RERANK_TRIAL.judgment, rerank_threshold: CONSERVATIVE_RERANK_TRIAL.threshold,
+      rerank_selected_names: ["alpha", "gamma"], injected_skill_names: ["alpha", "gamma"] });
     const live = { ...s.gate, event_type: "skill_rerank_experiment", experiment_arm: "treatment", status: "ok",
       rerank_policy: CONSERVATIVE_RERANK_TRIAL.id, rerank_judgment: CONSERVATIVE_RERANK_TRIAL.judgment,
       rerank_threshold: CONSERVATIVE_RERANK_TRIAL.threshold, selected_names: ["alpha", "gamma"],
@@ -141,6 +142,11 @@ describe("rerank evidence pipeline", () => {
     assert.equal(prepareRerankEvaluation(wrong.run, wrong.output, catalog).live.exclusions.hash_not_verified, 1);
     const duplicate = fixture([s], [live, live]);
     assert.equal(prepareRerankEvaluation(duplicate.run, duplicate.output, catalog).live.exclusions.multiple_reranks, 1);
+    const contradictoryGate = { ...s, gate: { ...s.gate, rerank_selected_names: ["alpha"], injected_skill_names: ["alpha"] } };
+    const contradictory = fixture([contradictoryGate], [live]);
+    const contradictoryPreview = prepareRerankEvaluation(contradictory.run, contradictory.output, catalog);
+    assert.equal(contradictoryPreview.live.exclusions.treatment_selection_mismatch, 1);
+    assert.equal(contradictoryPreview.live.labeled_turns, 0);
   });
 
   it("freezes only intended outbound fields and preserves private labels separately", () => {
