@@ -114,7 +114,8 @@ describe("rerank evidence pipeline", () => {
   it("joins live records only by exact identity and matching prompt/candidates", () => {
     const s = sample(); s.gate.experiment_arm = "treatment";
     const live = { ...s.gate, event_type: "skill_rerank_experiment", experiment_arm: "treatment", status: "ok",
-      rerank_policy: CONSERVATIVE_RERANK_TRIAL.id, selected_names: ["alpha", "gamma"],
+      rerank_policy: CONSERVATIVE_RERANK_TRIAL.id, rerank_judgment: CONSERVATIVE_RERANK_TRIAL.judgment,
+      rerank_threshold: CONSERVATIVE_RERANK_TRIAL.threshold, selected_names: ["alpha", "gamma"],
       fits: [{ name: "alpha", probability: 0.15 }, { name: "beta", probability: 0.05 }, { name: "gamma", probability: 0.6 }] };
     const f = fixture([s], [live, { ...live, user_id: "other-user" }, { ...live, turn_id: "other-turn" }, { ...live, session_id: "other-session" }]);
     const preview = prepareRerankEvaluation(f.run, f.output, catalog);
@@ -123,6 +124,8 @@ describe("rerank evidence pipeline", () => {
     assert.equal(preview.live.cached_quality.tp, 1); assert.equal(preview.live.cached_quality.fp, 0);
     assert.equal(preview.live.arm_gate_counts.treatment, 1);
     assert.equal(preview.live.cached_quality_by_policy[CONSERVATIVE_RERANK_TRIAL.id]!.tp, 1);
+    const mismatchedPolicy = fixture([s], [{ ...live, rerank_threshold: 0.5 }]);
+    assert.equal(prepareRerankEvaluation(mismatchedPolicy.run, mismatchedPolicy.output, catalog).live.exclusions.policy_mismatch, 1);
     const mixed = fixture([s], [{ ...live, experiment_arm: "control" }]);
     assert.equal(prepareRerankEvaluation(mixed.run, mixed.output, catalog).live.exclusions.arm_mismatch, 1);
     const wrong = fixture([s], [{ ...live, prompt_sha256: "wrong" }]);

@@ -66,6 +66,10 @@ function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
     linked += matches.length;
     if (matches.length !== 1) { exclusions.push("multiple_reranks"); continue; }
     const event = matches[0]!;
+    if (event.rerank_policy === CONSERVATIVE_RERANK_TRIAL.id
+      && (event.rerank_judgment !== CONSERVATIVE_RERANK_TRIAL.judgment || event.rerank_threshold !== CONSERVATIVE_RERANK_TRIAL.threshold)) {
+      exclusions.push("policy_mismatch"); continue;
+    }
     const gates = gateByTurn.get(key);
     if (event.event_type === "skill_rerank_experiment"
       && (event.experiment_arm !== "treatment" || gates?.length !== 1 || gates[0]!.experiment_arm !== "treatment")) {
