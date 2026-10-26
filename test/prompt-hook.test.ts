@@ -105,6 +105,21 @@ describe("prompt hook", () => {
     assert.equal(output.hookSpecificOutput.additionalContext, "");
   });
 
+  it("records gate latency before the separately measured reranker", async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-26T00:00:00Z") });
+    const root = mkdtempSync(join(tmpdir(), "hook-latency-"));
+    const eventsFile = join(root, "usage-events.jsonl");
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    await handle({ prompt: "schedule a meeting", session_id: "session-treatment", turn_id: "latency-turn" },
+      { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsFile, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_RERANK_MODE: "experiment" },
+      async () => { t.mock.timers.tick(7); return { status: "pass", probability: 0.9, model: "jev-1.13.0" }; },
+      async () => { t.mock.timers.tick(2000); return { status: "ok", fits: [{ name: "calendar", probability: 0.9 }], selected: ["calendar"],
+        request_attempted: true, estimated_input_tokens: 50, cost_usd: 0.0000021, latency_ms: 2000 }; });
+    const events = readFileSync(eventsFile, "utf8").trim().split("\n").map(JSON.parse);
+    assert.equal(events.find((row) => row.event_type === "gate_decision").latency_ms, 7);
+    assert.equal(events.find((row) => row.event_type === "skill_rerank_experiment").latency_ms, 2000);
+  });
+
   it("runs shadow reranking after a pass, logs its suggestion, and leaves injection unchanged", async () => {
   const root = mkdtempSync(join(tmpdir(), "hook-"));
   const eventsFile = join(root, "usage-events.jsonl");

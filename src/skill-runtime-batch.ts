@@ -190,6 +190,7 @@ export function prepareSkillRuntimeBatch(options: {
   const run = frozenRun(options.run);
   const protocol = options.protocol ? readProtocol(options.protocol) : null;
   if (protocol) {
+    check(!existsSync(join(options.protocol!, "batch-reservation.json")), "Registration already reserved a batch.");
     // Freeze the full window before scoring; do not enable repeated interim winner checks.
     check(run.captured_at >= timestamp(protocol.window_end), "Prospective collection window is not complete.");
   }
@@ -347,7 +348,8 @@ function ledger(path: string, batch: Batch, batchHash: string) {
     check(attempt.batch_sha256 === batchHash && attempt.request_sha256 === experimentDigest(request.body)
       && attempt.request_id === request.id, "Attempt mismatch.");
     if (!results.has(name)) {
-      ambiguous++;
+      ambiguous++; missingUsage++;
+      accountedCost += skillGateListCostUsd(Math.ceil(Buffer.byteLength(request.body) / 4))!;
       observations.set(request.id, { attempted: true, result: null });
       evidence.push({ request_id: request.id, attempt_sha256: experimentDigest(bytes), result_sha256: null });
       continue;
@@ -414,7 +416,7 @@ export function inspectSkillRuntimeBatch(path: string) {
       : ["questions.any_skill.instructions", "questions.any_skill.criteria"],
     private_payload_location: join(resolve(path), "batch.json"),
     attempted: state.attempted, completed: state.completed, ambiguous: state.ambiguous, pending: state.pending.length,
-    missing_usage: state.missing_usage,
+    missing_usage: state.missing_usage, accounted_input_cost_usd: state.accounted_cost_usd,
     report_finalized: existsSync(join(path, "report-reservation.json")),
     approval_required: true, external_calls: 0,
   };

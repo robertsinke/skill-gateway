@@ -66,11 +66,16 @@ function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
     linked += matches.length;
     if (matches.length !== 1) { exclusions.push("multiple_reranks"); continue; }
     const event = matches[0]!;
-    if (event.rerank_policy === CONSERVATIVE_RERANK_TRIAL.id
-      && (event.rerank_judgment !== CONSERVATIVE_RERANK_TRIAL.judgment || event.rerank_threshold !== CONSERVATIVE_RERANK_TRIAL.threshold)) {
-      exclusions.push("policy_mismatch"); continue;
-    }
     const gates = gateByTurn.get(key);
+    if (gates?.length !== 1 || gates[0]!.gate_status !== "pass") { exclusions.push("gate_not_passed"); continue; }
+    const provenance = [event, gates[0]!];
+    const legacy = provenance.every((row) => row.rerank_policy == null && row.rerank_judgment == null && row.rerank_threshold == null);
+    const current = provenance.every((row) => row.rerank_policy === CONSERVATIVE_RERANK_TRIAL.id
+      && row.rerank_judgment === CONSERVATIVE_RERANK_TRIAL.judgment && row.rerank_threshold === CONSERVATIVE_RERANK_TRIAL.threshold);
+    if (!legacy && !current) { exclusions.push("policy_mismatch"); continue; }
+    if (event.event_type === "skill_rerank_shadow" && (event.experiment_arm != null || gates[0]!.experiment_arm != null)) {
+      exclusions.push("arm_mismatch"); continue;
+    }
     if (event.event_type === "skill_rerank_experiment"
       && (event.experiment_arm !== "treatment" || gates?.length !== 1 || gates[0]!.experiment_arm !== "treatment")) {
       exclusions.push("arm_mismatch"); continue;

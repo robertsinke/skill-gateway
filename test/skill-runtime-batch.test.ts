@@ -194,6 +194,7 @@ describe("frozen paired batches", () => {
     assert.equal(batch.exclusions.unknown_session_times, 1);
     assert.equal(existsSync(join(registration, "batch-reservation.json")), true);
     assert.throws(() => prepareSkillRuntimeBatch({ run: later.run, output: join(later.dir, "second-batch"), catalog, protocol: registration }));
+    assert.equal(existsSync(join(later.dir, "second-batch")), false);
     const report = reportSkillRuntimeBatch(later.output, join(later.dir, "report"));
     assert.equal(report.decision.outcome, "insufficient_evidence");
     assert.equal(report.coverage.arms.baseline.pending, 1);
@@ -295,7 +296,12 @@ describe("explicit approval and durable scoring", () => {
     rmSync(join(fixture.output, "results", "000001.json")); // simulate crash after reservation
     await assert.rejects(scoreSkillRuntimeBatch(fixture.output, approval, { apiKey: "test", fetcher }), /manual review/);
     assert.equal(calls, 2);
-    assert.equal(inspectSkillRuntimeBatch(fixture.output).ambiguous, 1);
+    const inspected = inspectSkillRuntimeBatch(fixture.output);
+    assert.equal(inspected.ambiguous, 1);
+    assert.equal(inspected.missing_usage, 1);
+    const body = read(join(fixture.output, "batch.json")).requests[0].body;
+    const reserved = Math.ceil(Buffer.byteLength(body) / 4) * 0.042 / 1_000_000;
+    assert.ok(inspected.accounted_input_cost_usd >= reserved - 1e-12);
   });
 
   it("accounts for unknown usage and stops when observed costs exhaust the approved estimate", async () => {

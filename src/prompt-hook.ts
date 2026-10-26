@@ -121,6 +121,7 @@ export async function handle(
     if (decision.status === "pass") injectedResults = gateResults;
   }
 
+  const gateLatencyMs = Math.max(0, Date.now() - gateStartedAt);
   // Shadow measures without changing injection; experiment randomly assigns stable sessions to treatment/control.
   if ((rerankMode === "shadow" || (rerankMode === "experiment" && experimentArm === "treatment")) && decision?.status === "pass" && gateCandidates.length > 0) {
     let rerank: RerankResult;
@@ -218,7 +219,7 @@ export async function handle(
       cost_basis: costBasis,
       cost_rate_usd_per_million_input_tokens: SKILL_GATE_INPUT_PRICE_USD_PER_MILLION_TOKENS,
       cost_rate_source: "https://docs.typesafe.ai/models.md",
-      latency_ms: Math.max(0, Date.now() - gateStartedAt),
+      latency_ms: gateLatencyMs,
       ...(gate.reason ? { reason: gate.reason } : {}),
     }, env);
   } catch {

@@ -113,6 +113,8 @@ describe("explicit conservative rerank policy", () => {
 describe("rerank evidence pipeline", () => {
   it("joins live records only by exact identity and matching prompt/candidates", () => {
     const s = sample(); s.gate.experiment_arm = "treatment";
+    Object.assign(s.gate, { rerank_policy: CONSERVATIVE_RERANK_TRIAL.id,
+      rerank_judgment: CONSERVATIVE_RERANK_TRIAL.judgment, rerank_threshold: CONSERVATIVE_RERANK_TRIAL.threshold });
     const live = { ...s.gate, event_type: "skill_rerank_experiment", experiment_arm: "treatment", status: "ok",
       rerank_policy: CONSERVATIVE_RERANK_TRIAL.id, rerank_judgment: CONSERVATIVE_RERANK_TRIAL.judgment,
       rerank_threshold: CONSERVATIVE_RERANK_TRIAL.threshold, selected_names: ["alpha", "gamma"],
@@ -126,6 +128,13 @@ describe("rerank evidence pipeline", () => {
     assert.equal(preview.live.cached_quality_by_policy[CONSERVATIVE_RERANK_TRIAL.id]!.tp, 1);
     const mismatchedPolicy = fixture([s], [{ ...live, rerank_threshold: 0.5 }]);
     assert.equal(prepareRerankEvaluation(mismatchedPolicy.run, mismatchedPolicy.output, catalog).live.exclusions.policy_mismatch, 1);
+    const foreignPolicy = fixture([s], [{ ...live, rerank_policy: "relevance-v2-at-0.2" }]);
+    assert.equal(prepareRerankEvaluation(foreignPolicy.run, foreignPolicy.output, catalog).live.exclusions.policy_mismatch, 1);
+    const badShadow = fixture([s], [{ ...live, event_type: "skill_rerank_shadow" }]);
+    assert.equal(prepareRerankEvaluation(badShadow.run, badShadow.output, catalog).live.exclusions.arm_mismatch, 1);
+    const rejectedGate = { ...s, gate: { ...s.gate, gate_status: "reject" } };
+    const badGate = fixture([rejectedGate], [live]);
+    assert.equal(prepareRerankEvaluation(badGate.run, badGate.output, catalog).live.exclusions.gate_not_passed, 1);
     const mixed = fixture([s], [{ ...live, experiment_arm: "control" }]);
     assert.equal(prepareRerankEvaluation(mixed.run, mixed.output, catalog).live.exclusions.arm_mismatch, 1);
     const wrong = fixture([s], [{ ...live, prompt_sha256: "wrong" }]);
