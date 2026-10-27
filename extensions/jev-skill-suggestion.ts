@@ -9,11 +9,11 @@ import { noteFollowup, record, userId, type GateAudit } from "../src/query-log.t
 import { SKILL_GATE_INPUT_PRICE_USD_PER_MILLION_TOKENS } from "../src/skill-gate.ts";
 import { DEFAULT_MODEL } from "../src/vendor/jev-skill-suggestion/policy.ts";
 
-type Options = { apiKey?: string | null; fetcher?: typeof fetch };
+type Options = { apiKey?: string | null; fetcher?: typeof fetch; enabledByDefault?: boolean };
 
 /** Explicit opt-in: pi -e ./extensions/jev-skill-suggestion.ts --jev-skill-suggestion */
 export default function jevSkillSuggestion(pi: ExtensionAPI, options: Options = {}) {
-  pi.registerFlag("jev-skill-suggestion", { type: "boolean", default: false,
+  pi.registerFlag("jev-skill-suggestion", { type: "boolean", default: options.enabledByDefault ?? false,
     description: "Trial: original Jev chooser; sends prompt, roster and top-three skill excerpts to TypeSafe" });
   let chooser: JevSkillSuggestion | undefined;
   let generation = 0;

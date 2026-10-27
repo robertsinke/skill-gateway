@@ -33,11 +33,11 @@ After the updated gateway `prompt-hook.js` has been deployed, start a separate P
 pi -e /path/to/skill-gateway/extensions/jev-skill-suggestion.ts --jev-skill-suggestion
 ```
 
-The flag explicitly enables the approved TypeSafe/excerpt path. Without it, the extension does nothing. `Jev original: …` in the status line confirms activation. A credential warning means it is **not** active.
+The flag explicitly enables the approved TypeSafe/excerpt path. Without it, the direct extension does nothing, unless a personal loader calls `registerJev(pi, { enabledByDefault: true })`. This machine now has that default-on loader at `~/.pi/agent/extensions/jev-skill-suggestion.ts`: reload Pi once, then use Pi normally without flags. `Jev original: …` in the status line confirms activation. A credential warning means it is **not** active.
 
 The extension sets an in-process session marker inherited by the hook subprocess. The updated `prompt-hook` checks the exact Pi session ID and skips the old chooser only for that session, preventing two selectors from running together. Other agents, other sessions and the existing experiment are unchanged. Do not enable the trial against an older installed hook: it lacks this bypass. A prerequisite test verifies the bypass with the real hook handler.
 
-To stop: exit the trial session and start Pi without the flag. No global skill overrides, roster removals, or model settings need restoring. The small installed hook update has a separate hash-guarded backup/rollback; reverting it is optional while the flag is unused.
+To stop a flag-only trial: exit the trial session and start Pi without the flag. For the installed default-on loader, remove `~/.pi/agent/extensions/jev-skill-suggestion.ts` and reload Pi instead. No global skill overrides, roster removals, or model settings need restoring. The small installed hook update has a separate hash-guarded backup/rollback; reverting it is optional while the flag is unused.
 
 ## Proof
 

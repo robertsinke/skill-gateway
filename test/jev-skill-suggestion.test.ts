@@ -165,6 +165,14 @@ describe("original Jev policy in Pi", () => {
 });
 
 describe("Pi integration", () => {
+  it("lets an installed loader select the trial as the default without requiring a CLI flag", () => {
+    const defaults: boolean[] = [];
+    const pi = { registerFlag(_name: string, options: { default: boolean }) { defaults.push(options.default); }, on() {} };
+    register(pi as any);
+    register(pi as any, { enabledByDefault: true });
+    assert.deepEqual(defaults, [false, true]);
+  });
+
   it("is opt-in, hides only the skill section, logs the exact turn, and suppresses only this session's legacy chooser", async () => {
     const f = fixture(), events = join(f.root, "events.jsonl");
     const keys = ["SKILL_GATEWAY_ROOT", "SKILL_GATEWAY_LOG", "SKILL_GATEWAY_EVENTS", "SKILL_GATEWAY_PI_JEV_SESSION"];
