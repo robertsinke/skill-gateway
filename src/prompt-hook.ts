@@ -73,6 +73,9 @@ export async function handle(
   const recordPayload = payload as Record<string, unknown>;
   const prompt = recordPayload.prompt !== undefined && recordPayload.prompt !== null ? recordPayload.prompt : recordPayload.userPrompt;
   if (typeof prompt !== "string" || !prompt.trim()) return emptyJson();
+  // The opt-in native Pi chooser owns this session; never run two selectors on the same prompt.
+  const piSession = sessionId(recordPayload);
+  if (isPi(recordPayload) && piSession && piSession === env.SKILL_GATEWAY_PI_JEV_SESSION) return emptyJson();
   let results: Hit[];
   try {
     results = searchPrompt(prompt, env);
