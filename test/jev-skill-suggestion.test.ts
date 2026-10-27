@@ -146,6 +146,9 @@ describe("original Jev policy in Pi", () => {
         const answer = await new JevSkillSuggestion({ allowSkillExcerpts: true, apiKey: "fixture", fetcher: (async () => new Response(body)) as typeof fetch }).suggest("review", f.roster, f.root);
         assert.equal(answer.context, ""); assert.equal(answer.requests.length, 1); assert.equal(answer.requests[0]!.status, "error");
       }
+      const invalid = await new JevSkillSuggestion({ allowSkillExcerpts: true, apiKey: "fixture", fetcher: (async () => new Response(JSON.stringify({ answers: {}, usage: { input_tokens: 999 } }))) as typeof fetch }).suggest("review", f.roster, f.root);
+      assert.equal(invalid.requests[0]!.status, "error"); assert.equal(invalid.requests[0]!.input_tokens, 999);
+      assert.ok(Math.abs(invalid.requests[0]!.cost_usd! - 999 * 0.042 / 1_000_000) < 1e-12);
       const timed = await new JevSkillSuggestion({ allowSkillExcerpts: true, apiKey: "fixture", fetcher: (async () => { throw new DOMException("timeout", "TimeoutError"); }) as typeof fetch }).suggest("review", f.roster, f.root);
       assert.equal(timed.requests[0]!.reason, "timeout"); assert.equal(timed.name, null);
     } finally { rmSync(f.root, { recursive: true, force: true }); }

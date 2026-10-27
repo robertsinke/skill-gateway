@@ -41,4 +41,6 @@ To stop: exit the trial session and start Pi without the flag. No global skill o
 
 ## Proof
 
+Verified locally on 2026-10-27: 181 tests, repository typecheck and a separate check against the installed Pi API. A real TypeSafe call with synthetic public skills chose the expected Git skill, using both original requests in 654 ms. A real Pi session considered all 153 available skills, hid the native roster and recorded exactly one chooser decision (the original one), then replied READY. With the ordinary global extension set its one-shot process remained alive after the response and was stopped after 90 seconds; with only this extension it completed and exited normally. The combined-extension shutdown behavior remains unresolved; the chooser itself completed. These checks do not establish better suggestions or justify altering the original policy.
+
 Tests compare both request payloads and decisions directly against the pinned policy, including its non-obvious fit rule. They also cover excerpt limits, full-body local attachment, disabled skills, missing files, cache resets, malformed responses, failures/timeouts, consent, native-list hiding, per-session legacy suppression, and local audit joins. A passing port proves implementation parity and wiring, **not better suggestions**. Judge the actual trial on fresh usage and explicit feedback.

@@ -74,12 +74,11 @@ export class JevSkillSuggestion {
         if (!response.ok) { audit.reason = `http_${response.status}`; return null; }
         const text = await response.text();
         const parsed: unknown = JSON.parse(text);
+        if (isRecord(parsed) && isRecord(parsed.usage)) {
+          audit.input_tokens = tokens(parsed.usage.input_tokens); audit.output_tokens = tokens(parsed.usage.output_tokens);
+        }
         if (!validResponse(parsed)) { audit.reason = "invalid_response"; return null; }
         if (!(phase === "ranking" ? readWide(text) : readRerank(text))) { audit.reason = "invalid_answers"; return null; }
-        const usage = parsed.usage;
-        if (isRecord(usage)) {
-          audit.input_tokens = tokens(usage.input_tokens); audit.output_tokens = tokens(usage.output_tokens);
-        }
         audit.status = "ok";
         return text;
       } catch (error) {
