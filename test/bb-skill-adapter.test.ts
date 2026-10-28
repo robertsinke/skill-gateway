@@ -99,3 +99,14 @@ test("keeps the roster hidden when BB cannot answer", async () => {
   assert.equal(output, undefined);
   assert.deepEqual(event.systemPromptOptions.skills, []);
 });
+
+test("the registry default decides whether BB selection is on", async () => {
+  const { default: register } = await import("../extensions/jev-skill-suggestion-bb.ts");
+  const seen: unknown[] = [];
+  const pi = { registerFlag: (name: string, spec: unknown) => seen.push({ name, spec }), getFlag: () => false, on() {} };
+  register(pi as any, { enabledByDefault: true });
+  register(pi as any, {});
+  const specs = seen as { name: string; spec: { default: boolean } }[];
+  assert.equal(specs[0]!.spec.default, true);
+  assert.equal(specs[1]!.spec.default, false);
+});

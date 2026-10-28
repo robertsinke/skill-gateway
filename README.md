@@ -58,9 +58,16 @@ Selection can live in BB instead of the harness: the [BB plugin](bb-plugin/) own
 The flow is one request per user message: Pi posts the prompt to `POST /api/v1/plugins/skill-gateway/http/select`, the plugin runs `dist/select.js` on the BB server, and the gateway searches its library and asks Jev for one skill or none. The plugin keeps the per-session loaded set in BB storage, so a repeated skill is referenced rather than inlined twice. The adapter clears Pi's native skill roster before the request reaches the model, so a failure means no skill rather than a leaked catalog.
 
 ```sh
+npm run build:ui:bb                              # dashboard built for the plugin route
 cd bb-plugin && bb plugin install . --yes      # then: bb plugin token skill-gateway
-pi --jev-via-bb                                # one selector runs; the local chooser stands down
+pi --jev-via-bb                                # default; one selector runs
 ```
+
+The plugin also gives BB a **Skill Gateway** sidebar destination (rail icon `Search`). Its panel shows the existing Svelte dashboard, served same-origin from `/api/v1/plugins/skill-gateway/http/ui/`, and its `/api` calls relay through the plugin so the browser never crosses origins. The panel reads live data only while the gateway server runs (`node dist/serve.js`, default port 8741); otherwise it shows the relay error.
+
+### Cursor models keep their own roster
+
+Cursor's agent process advertises its own skills, and Pi cannot suppress that from the adapter: measured with a sentinel skill, `cursor-agent` listed it by name in a plain run, and `CURSOR_CONFIG_DIR` isolation still listed every skill. Only an isolated `HOME` removes them, which also removes authentication. Hiding one skill does work: adding `disable-model-invocation: true` to its `SKILL.md` dropped it from the roster while the other sentinel stayed. So the roster-free invariant holds for models Pi itself serves, and Cursor models remain the known exception.
 
 The selection core is `src/select.ts` (`selectSkill`, plus the `select.js` stdin entrypoint). Rebuild with `npm run build` and redeploy `dist/` before relying on it: the plugin shells out to `~/.local/share/skill-gateway/dist/select.js` by default. Both the entrypoint and the library are read on the BB server machine, so a thread whose Pi session runs on another host needs that host's files shared first. Roll back with `--jev-via-bb=false` (local chooser returns) or `bb plugin disable skill-gateway`.
 

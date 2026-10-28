@@ -68,10 +68,10 @@ export async function selectViaBb(
   };
 }
 
-export default function jevViaBb(pi: ExtensionAPI, options: Options = {}) {
+export default function jevViaBb(pi: ExtensionAPI, options: Options & { enabledByDefault?: boolean } = {}) {
   pi.registerFlag("jev-via-bb", {
     type: "boolean",
-    default: false,
+    default: options.enabledByDefault ?? false,
     description: "Let the BB skill-gateway plugin select one skill per message; Pi advertises no skill roster",
   });
 
