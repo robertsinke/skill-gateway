@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { apiFetch } from "./api";
 
   let key = $state("");
   let keyConfigured = $state(false);
@@ -12,7 +13,7 @@
   });
 
   async function loadSettings(): Promise<void> {
-    const response = await fetch("/api/settings");
+    const response = await apiFetch("/api/settings");
     const body = (await response.json()) as { typesafe?: { configured?: boolean; unlocked?: boolean; updated_at?: string | null } };
     keyConfigured = body.typesafe?.configured === true;
     keyUnlocked = body.typesafe?.unlocked === true;
@@ -21,7 +22,7 @@
 
   async function saveKey(): Promise<void> {
     keyMessage = "Saving…";
-    const response = await fetch("/api/settings/typesafe-key", {
+    const response = await apiFetch("/api/settings/typesafe-key", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ key }),
@@ -39,7 +40,7 @@
   }
 
   async function removeKey(): Promise<void> {
-    const response = await fetch("/api/settings/typesafe-key", { method: "DELETE" });
+    const response = await apiFetch("/api/settings/typesafe-key", { method: "DELETE" });
     if (response.ok) {
       keyConfigured = false;
       keyUnlocked = false;

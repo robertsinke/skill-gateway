@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { apiFetch } from "./api";
   import { phrase, sourceLine } from "./lib/format";
   import type { RemovableCopy, ScanReport, SortKey } from "./lib/types";
   import { gateway } from "./state.svelte";
@@ -66,7 +67,7 @@
   }
 
   async function loadMetadata(): Promise<void> {
-    const response = await fetch("/api/metadata");
+    const response = await apiFetch("/api/metadata");
     const body = (await response.json()) as { metadata?: Record<string, Metadata>; path?: string };
     metadata = body.metadata ?? {};
     metadataPath = body.path ?? "";
@@ -98,7 +99,7 @@
       return;
     }
     const next = { capabilities: splitLines(capabilities), aliases: splitLines(aliases), avoid_when: splitLines(avoidWhen) };
-    const response = await fetch("/api/metadata", {
+    const response = await apiFetch("/api/metadata", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: metadataName.trim(), metadata: next }),
@@ -114,7 +115,7 @@
 
   async function deleteMetadata(): Promise<void> {
     if (!metadataName) return;
-    const response = await fetch(`/api/metadata?name=${encodeURIComponent(metadataName)}`, { method: "DELETE" });
+    const response = await apiFetch(`/api/metadata?name=${encodeURIComponent(metadataName)}`, { method: "DELETE" });
     if (!response.ok) return;
     const body = (await response.json()) as { metadata?: Record<string, Metadata> };
     metadata = body.metadata ?? {};

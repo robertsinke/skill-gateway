@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PreviewRow } from "./lib/types";
+  import { apiFetch } from "./api";
   import { gateway } from "./state.svelte";
 
   let nameQuery = $state("");
@@ -40,7 +41,7 @@
   async function preview(): Promise<void> {
     const skill = gateway.skill();
     if (!skill) return;
-    const response = await fetch("/api/preview", {
+    const response = await apiFetch("/api/preview", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: skill.name, description, targets: messages }),
@@ -60,7 +61,7 @@
   async function fill(): Promise<void> {
     const skill = gateway.skill();
     if (!skill) return;
-    const response = await fetch(`/api/suggest?name=${encodeURIComponent(skill.name)}`);
+    const response = await apiFetch(`/api/suggest?name=${encodeURIComponent(skill.name)}`);
     const body: unknown = await response.json();
     const report = object(body);
     const suggested = Array.isArray(report?.messages) ? report.messages.filter((item): item is string => typeof item === "string") : [];
@@ -77,7 +78,7 @@
     const skill = gateway.skill();
     if (!skill) return;
     const targets = messages.map((item) => item.trim());
-    const response = await fetch("/api/targets", {
+    const response = await apiFetch("/api/targets", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: skill.name, targets }),

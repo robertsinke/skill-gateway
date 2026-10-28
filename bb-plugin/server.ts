@@ -6,8 +6,9 @@
 // one skill or none, and returns only that skill's instructions. The adapter
 // injects them; nothing about the library reaches the model otherwise.
 import { execFile } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { extname, join, relative, sep } from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
@@ -46,6 +47,18 @@ export default async function plugin(bb: BbPluginApi) {
       default: "",
     },
     nodeBinary: { type: "string", label: "Node binary", default: "node" },
+    uiDir: {
+      type: "string",
+      label: "Dashboard build directory",
+      description: "The SKILL_GATEWAY_UI_BASE build of src/ui, served under /ui.",
+      default: join(homedir(), "dev", "skill-gateway", "dist", "ui-bb"),
+    },
+    gatewayServerUrl: {
+      type: "string",
+      label: "Gateway server URL",
+      description: "Where the dashboard's /api calls are relayed.",
+      default: "http://127.0.0.1:8741",
+    },
   });
 
   const loadedKey = (sessionId: string) => `loaded:${sessionId}`;
@@ -126,6 +139,78 @@ export default async function plugin(bb: BbPluginApi) {
     { auth: "token" },
   );
 
+    // The dashboard is the existing Svelte build, served same-origin so its
+  // relative asset paths and /api relay work inside BB's panel.
+  const CONTENT_TYPES: Record<string, string> = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+    ".woff2": "font/woff2",
+  };
+
+  async function dashboardFile(relativePath: string, root: string): Promise<Response | null> {
+    if (relativePath.includes("..")) return null;
+    try {
+      const bytes = readFileSync(join(root, relativePath));
+      const type = CONTENT_TYPES[extname(relativePath).toLowerCase()] ?? "application/octet-stream";
+      if (relativePath !== "index.html") return new Response(bytes, { headers: { "content-type": type } });
+      const html = bytes.toString("utf8").replace(
+        "</head>",
+        `<script>globalThis.__SKILL_GATEWAY_PROXY__="/api/v1/plugins/skill-gateway/http/api";</script></head>`,
+      );
+      return new Response(html, { headers: { "content-type": type } });
+    } catch {
+      return null;
+    }
+  }
+
+  // The dashboard's files are registered explicitly: the router has no wildcards.
+  // Settings are read once per load, so routes exist before the factory returns.
+  const { uiDir } = await settings.get();
+  const dashboardRoot = uiDir.replace(/\/+$/, "");
+  for (const relativePath of listFiles(dashboardRoot)) {
+    bb.http.route(
+      "GET",
+      `/ui/${relativePath}`,
+      async () => (await dashboardFile(relativePath, dashboardRoot)) ?? new Response("not found", { status: 404 }),
+      { auth: "local" },
+    );
+  }
+
+  // One relay path keeps the dashboard's many endpoints out of this plugin.
+  for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"] as const) {
+    bb.http.route(
+      method,
+      "/api",
+      async (context) => {
+        const path = context.req.query("path") ?? "";
+        if (!path.startsWith("/api/") || path.includes("..")) {
+          return context.json({ error: "invalid_path" }, 400);
+        }
+        const { gatewayServerUrl } = await settings.get();
+        const base = gatewayServerUrl.replace(/\/+$/, "");
+        const body = method === "GET" || method === "DELETE" ? undefined : await context.req.arrayBuffer();
+        try {
+          const upstream = await fetch(`${base}${path}`, {
+            method,
+            ...(body ? { body, headers: { "content-type": context.req.header("content-type") ?? "application/json" } } : {}),
+            signal: AbortSignal.timeout(15_000),
+          });
+          const bytes = await upstream.arrayBuffer();
+          return new Response(bytes, {
+            status: upstream.status,
+            headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
+          });
+        } catch (error) {
+          return context.json({ error: "gateway_unreachable", message: errorMessage(error), base }, 503);
+        }
+      },
+      { auth: "local" },
+    );
+  }
+
   bb.cli.register({
     name: "skill-gateway",
     summary: "Skill gateway selection: status and one-off select",
@@ -174,6 +259,30 @@ export default async function plugin(bb: BbPluginApi) {
       return { exitCode: 1, stderr: "unknown command; run `bb skill-gateway status`" };
     },
   });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Every file under the dashboard build, as `/`-joined relative paths. */
+function listFiles(root: string): string[] {
+  const files: string[] = [];
+  const walk = (directory: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else files.push(relative(root, full).split(sep).join("/"));
+    }
+  };
+  walk(root);
+  return files;
 }
 
 function parseJson(value: string): unknown {

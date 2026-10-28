@@ -19,7 +19,7 @@ Routing index only: implementation files remain authoritative. Runtime paths and
 | `src/` | TypeScript runtime, reusable logic, and service entrypoints. `src/ui/` is the Svelte dashboard. |
 | `test/` | Node tests, generally paired with the source module they exercise. |
 | `extensions/` | Pi host extension. `jev-skill-suggestion-bb.ts` is the BB-backed adapter. |
-| `bb-plugin/` | BB plugin that owns per-message selection and the loaded-skill state. |
+| `bb-plugin/` | BB plugin that owns per-message selection, the loaded-skill state, and the dashboard panel. |
 | `.agents/plugins/skill-gateway/` | Packaged plugin metadata, hooks, MCP configuration, and launcher. |
 | `skills/gateway/` | Agent-facing gateway skill and its index. Other tracked `skills/` files are evaluation fixtures/catalog material, not the private skill library. |
 | `scripts/` | Build-time page rendering, Codex pointer synchronization, and local usage-dataset CLI. |
@@ -33,6 +33,7 @@ Routing index only: implementation files remain authoritative. Runtime paths and
 - **Turn feedback labels:** use `src/skill-usage-feedback.ts` for exact-turn search, validation, and append-only snapshots; expose both MCP and CLI interfaces. Check the feedback module, CLI, and MCP tool tests.
 - **Picker behavior:** change `src/picker-contract.ts` with `extensions/skill-gateway.ts`; check `test/picker-contract.test.ts` and `test/pi-extension.test.ts`.
 - **BB-owned selection:** change `src/select.ts` and `bb-plugin/server.ts` together; check `test/select.test.ts` and `test/bb-skill-adapter.test.ts`, then rebuild `dist/select.js` and `bb plugin build bb-plugin`.
+- **Dashboard in BB:** `npm run build:ui:bb` writes `dist/ui-bb` with the plugin's base path; `bb-plugin/app.tsx` registers the panel and `bb-plugin/server.ts` serves those files plus the `/api` relay. `src/ui/api.ts` is the only place the dashboard chooses direct versus relayed requests.
 - **HTTP/MCP/UI behavior:** trace `src/http-mcp.ts`, `src/mcp.ts`, `src/serve.ts`, and `src/ui/`; check the corresponding MCP, HTTP, serve, and picker-HTTP tests.
 - **Build/deployment:** `package.json`, `tsconfig.json`, and `vite.config.ts` define output layout. `dist/search.js` is invoked by the prompt hook and gateway skill; `dist/http-mcp.js` is invoked by the package script and plugin launcher; `dist/skill-usage-feedback-cli.js` is the global CLI fallback. Preserve these entrypoints unless updating every consumer.
 
