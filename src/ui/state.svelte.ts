@@ -1,3 +1,4 @@
+import { apiFetch } from "./api";
 import { asSearch, asSkill } from "./lib/format";
 import type { RemovableCopy, ScanPlace, ScanReport, SearchRow, Skill, View } from "./lib/types";
 
@@ -46,7 +47,7 @@ class Gateway {
   }
 
   async load(): Promise<void> {
-    const response = await fetch("/api/skills");
+    const response = await apiFetch("/api/skills");
     const body: unknown = await response.json();
     const inventory = object(body);
     this.skills = list(inventory?.skills).flatMap((item) => {
@@ -60,7 +61,7 @@ class Gateway {
   }
 
   async loadSearches(): Promise<void> {
-    const response = await fetch("/api/queries");
+    const response = await apiFetch("/api/queries");
     const body: unknown = await response.json();
     this.searches = list(body).flatMap((item) => {
       const row = asSearch(item);
@@ -69,7 +70,7 @@ class Gateway {
   }
 
   async places(): Promise<ScanPlace[]> {
-    const response = await fetch("/api/scan/places");
+    const response = await apiFetch("/api/scan/places");
     const body: unknown = await response.json();
     return list(body).flatMap((item) => {
       const row = object(item);
@@ -79,7 +80,7 @@ class Gateway {
   }
 
   async scanPlace(relative: string): Promise<ScanReport | null> {
-    const response = await fetch("/api/scan", {
+    const response = await apiFetch("/api/scan", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ relative }),
@@ -107,7 +108,7 @@ class Gateway {
   }
 
   async remove(paths: string[]): Promise<string[]> {
-    const response = await fetch("/api/scan/remove", {
+    const response = await apiFetch("/api/scan/remove", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ paths }),
