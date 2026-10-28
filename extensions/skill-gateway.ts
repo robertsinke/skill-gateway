@@ -1,14 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { randomUUID } from "node:crypto";
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { defaultRoots, search, searchRoots } from "../src/search.ts";
 import { buildSkillGateRequest, SKILL_GATE_THRESHOLD, type GateCandidate } from "../src/skill-gate.ts";
 import { record, userId } from "../src/query-log.ts";
 import { verifiedSkillNames } from "../src/skill-load-hook.ts";
 import { appendUsageEvent, DEFAULT_USAGE_EVENTS, promptDigest } from "../src/usage-events.ts";
-import { findLatestGateEvent, formatGateDetails, formatGateFooter } from "../src/pi-gate-telemetry.ts";
+import { findLatestGateEvent, formatGateDetails, formatGateFooter, sumRecordedGateCosts } from "../src/pi-gate-telemetry.ts";
 import { createFeedbackWidget } from "../src/pi-feedback-widget.ts";
 import { searchSkillUsageTurns, updateSkillUsageFeedback } from "../src/skill-usage-feedback.ts";
 import { findActiveSkillCompletion, parseSkillSelection, replaceSkillSelection, skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
@@ -87,6 +87,16 @@ function currentGateEvent(sessionId: string, promptSha256: string): Record<strin
   if (!path || path === "-") return null;
   try {
     return findLatestGateEvent(readRecentUsageEvents(path), sessionId, promptSha256);
+  } catch {
+    return null;
+  }
+}
+
+function cumulativeGateCost(): { total: number; includes_estimates: boolean } | null {
+  const path = process.env.SKILL_GATEWAY_EVENTS ?? DEFAULT_USAGE_EVENTS;
+  if (!path || path === "-") return null;
+  try {
+    return sumRecordedGateCosts(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
@@ -327,7 +337,9 @@ function showGateDetails(pi: ExtensionAPI, getDebug: () => GateDebug | undefined
       const body = debug.candidatesMatch && event.gate_status !== "no_candidates" && event.gate_status !== "bypassed" && event.gate_status !== "not_evaluated"
         ? buildSkillGateRequest(debug.prompt, debug.candidates)
         : null;
-      const details = formatGateDetails(event, body, Boolean(debug.candidatesMatch));
+      const cumulative = cumulativeGateCost();
+      const details = formatGateDetails(event, body, Boolean(debug.candidatesMatch), cumulative);
+      if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event, cumulative));
       if (!ctx.hasUI) {
         ctx.ui.notify("The skill-gate details view requires interactive Pi TUI mode.", "warning");
         return;
@@ -492,7 +504,7 @@ export default function (pi: ExtensionAPI): void {
     const eventNames = recordedCandidateNames(event);
     gateDebug = { ...gateDebug, event, candidatesMatch: JSON.stringify(localNames) === JSON.stringify(eventNames) };
     if (ctx.hasUI && ctx.mode === "tui") {
-      ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event));
+      ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(event, cumulativeGateCost()));
       showCurrentFeedback(ctx, gateDebug, true);
     }
   });
@@ -518,7 +530,7 @@ export default function (pi: ExtensionAPI): void {
       if (ctx.hasUI) ctx.ui.notify(`Could not record queued prompt feedback: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
     if (ctx.hasUI && ctx.mode === "tui") {
-      ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(gateDebug.event!));
+      ctx.ui.setStatus("skill-gateway-gate", formatGateFooter(gateDebug.event!, cumulativeGateCost()));
       showCurrentFeedback(ctx, gateDebug, true);
     }
   });
