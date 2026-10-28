@@ -358,7 +358,7 @@ function showGateDetails(pi: ExtensionAPI, getDebug: () => GateDebug | undefined
             ];
           },
           handleInput(data: string): void {
-            if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, Key.q)) {
+            if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, "q")) {
               done();
               return;
             }
@@ -454,11 +454,11 @@ export default function (pi: ExtensionAPI): void {
   };
   showSkillFeedbackCommand(pi, () => gateDebug, markFeedbackComplete);
 
-  pi.on("before_agent_start", (event: { prompt?: string }, ctx) => {
+  pi.on("before_agent_start", (event, ctx) => {
     clearPendingFeedbackWidgets(ctx);
     completedFeedbackTurns.clear();
     if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget("skill-gateway-feedback", undefined);
-    const rawPrompt = typeof event.prompt === "string" ? event.prompt : "";
+    const rawPrompt = "prompt" in event && typeof event.prompt === "string" ? event.prompt : "";
     if (!rawPrompt.trim()) {
       gateDebug = undefined;
       gatedStartingMessagePending = false;
