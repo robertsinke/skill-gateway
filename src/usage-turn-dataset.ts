@@ -107,6 +107,8 @@ function parseGate(row: Row): GateObservation {
   };
 }
 
+export { completeKey as usageTurnKey };
+
 export function buildUsageTurnDataset(events: unknown[], queryRows: unknown[], feedbackRows: unknown[] = []): {
   rows: TurnRow[];
   metadata: Record<string, unknown>;

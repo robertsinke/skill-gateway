@@ -41,9 +41,17 @@ codex plugin add skill-gateway@skill-gateway-local
 
 Set `SKILL_GATEWAY_ROOT` to this checkout before starting the MCP server or using the prompt hook.
 
+## Offline runtime experiments
+
+`npm run eval:skill-runtime -- --output <fresh-private-directory>` creates a local audit and frozen baseline. `npm run eval:skill-runtime:batch` prepares paired wording batches, registers prospective windows, and previews scoring locally. External scoring requires a separate exact-batch approval plus `--execute`. `--batch <directory> --report --output <fresh-private-directory>` produces a local paired report with regression checks and session-cluster uncertainty; prospective reporting finalizes that batch. No offline report activates a change. See [the experiment workflow](docs/skill-runtime-experiments.md) for commands, privacy boundaries, and safe resume behavior. `npm run eval:skill-rerank` evaluates explicit per-skill labels, joins recorded live selections, and checks cutoff calibration with entire sessions held out; see [the reranker evaluation and trial](docs/skill-rerank-experiment.md).
+
 ## Prompt injection gate
 
 The prompt hook searches the local library first, then sends the current user prompt and up to five candidate names/descriptions (not local paths or full history) to TypeSafe Jev `jev-1.13.0`. It injects the shortlist only when the Noul probability is at least `0.5`; no search hits or a gate error/timeout means no injection. The API key is read from the local secret store. Calls are billed and send prompt text to TypeSafe. The gate times out after 6.5 seconds to stay within the configured 10-second host-hook deadline. Set `SKILL_GATEWAY_GATE_MODE=off` to bypass the gate and restore unfiltered shortlist injection as a rollback.
+
+Pi now uses the [original Jev skill-suggestion trial](docs/jev-skill-suggestion-pi-trial.md) through a personal default-on loader. It ranks the whole roster and attaches one skill or none; its active session bypasses the legacy prompt hook below.
+
+The legacy prompt hook retains a per-skill reranking experiment in the local hooks manifest. When not bypassed by the original-Jev trial, it uses a stable 50/50 session split: control retains the gated shortlist; the approved conservative treatment uses `relevance-v2` at `0.1`. This remains exploratory, not independently validated evidence of improved selection. See [the rerank experiment notes](docs/skill-rerank-experiment.md) for decision framing, limitations, logged signals, and privacy.
 
 Gate decisions are appended to local, mode-`0600` `usage-events.jsonl`: candidate names and retrieval scores, pass/reject/error, probability, threshold, latency, request-size/token/cost metrics, session/turn IDs, and a prompt hash (not the prompt itself). A `PostToolUse` observer registered in `~/.hooks/manifest.json` records verified reads/invocations of library `SKILL.md` files as `skill_load` events for Claude Code, Codex, and OpenCode; it stores only the skill name and correlation IDs, not file paths, tool arguments, or output. The Pi extension records reads against the exact active user-message turn because queued messages do not start a new agent run; the generic hook skips Pi to avoid attaching those reads to the prior run ID. Other runtimes need equivalent adapters before their loads are counted. Existing `queries.jsonl` retains the prompt and follow-up/reaction fields and is mode-`0600`; the learning dataset excludes follow-ups and reactions.
 
