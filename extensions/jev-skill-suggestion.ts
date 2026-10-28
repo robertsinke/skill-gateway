@@ -44,6 +44,8 @@ export default function jevSkillSuggestion(pi: ExtensionAPI, options: Options = 
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (!chooser) return;
+    // The BB adapter claims this session when it owns selection; only one chooser may inject.
+    if (process.env.SKILL_GATEWAY_BB_SESSION === ctx.sessionManager.getSessionId()) return;
     // Use Pi's supported structured skill section, not regex replacement of the system prompt.
     const native = event.systemPromptOptions.skills.map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, disableModelInvocation: s.disableModelInvocation }));
     event.systemPromptOptions.skills = [];

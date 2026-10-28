@@ -1,0 +1,26 @@
+{
+  "name": "bb-plugin-skill-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bb": ">=0.48",
+    "bbPluginSdk": ">=0.6.94"
+  },
+  "bb": {
+    "name": "Skill Gateway",
+    "description": "Owns per-message skill selection: gateway discovery plus Jev, so hosts advertise no skill roster.",
+    "branding": {
+      "icon": "Search"
+    },
+    "server": "./server.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.94",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

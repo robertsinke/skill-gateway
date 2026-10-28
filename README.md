@@ -51,6 +51,19 @@ The prompt hook searches the local library first, then sends the current user pr
 
 Pi now uses the [original Jev skill-suggestion trial](docs/jev-skill-suggestion-pi-trial.md) through a personal default-on loader. It ranks the whole roster and attaches one skill or none; its active session bypasses the legacy prompt hook below.
 
+## BB-owned selection
+
+Selection can live in BB instead of the harness: the [BB plugin](bb-plugin/) owns the decision, and a host adapter only suppresses its provider's skill roster and injects the answer. Today the adapter is Pi (`--jev-via-bb`), which covers Codex models and Cursor ACP because both run through Pi.
+
+The flow is one request per user message: Pi posts the prompt to `POST /api/v1/plugins/skill-gateway/http/select`, the plugin runs `dist/select.js` on the BB server, and the gateway searches its library and asks Jev for one skill or none. The plugin keeps the per-session loaded set in BB storage, so a repeated skill is referenced rather than inlined twice. The adapter clears Pi's native skill roster before the request reaches the model, so a failure means no skill rather than a leaked catalog.
+
+```sh
+cd bb-plugin && bb plugin install . --yes      # then: bb plugin token skill-gateway
+pi --jev-via-bb                                # one selector runs; the local chooser stands down
+```
+
+The selection core is `src/select.ts` (`selectSkill`, plus the `select.js` stdin entrypoint). Rebuild with `npm run build` and redeploy `dist/` before relying on it: the plugin shells out to `~/.local/share/skill-gateway/dist/select.js` by default. Both the entrypoint and the library are read on the BB server machine, so a thread whose Pi session runs on another host needs that host's files shared first. Roll back with `--jev-via-bb=false` (local chooser returns) or `bb plugin disable skill-gateway`.
+
 The legacy prompt hook retains a per-skill reranking experiment in the local hooks manifest. When not bypassed by the original-Jev trial, it uses a stable 50/50 session split: control retains the gated shortlist; the approved conservative treatment uses `relevance-v2` at `0.1`. This remains exploratory, not independently validated evidence of improved selection. See [the rerank experiment notes](docs/skill-rerank-experiment.md) for decision framing, limitations, logged signals, and privacy.
 
 Gate decisions are appended to local, mode-`0600` `usage-events.jsonl`: candidate names and retrieval scores, pass/reject/error, probability, threshold, latency, request-size/token/cost metrics, session/turn IDs, and a prompt hash (not the prompt itself). A `PostToolUse` observer registered in `~/.hooks/manifest.json` records verified reads/invocations of library `SKILL.md` files as `skill_load` events for Claude Code, Codex, and OpenCode; it stores only the skill name and correlation IDs, not file paths, tool arguments, or output. The Pi extension records reads against the exact active user-message turn because queued messages do not start a new agent run; the generic hook skips Pi to avoid attaching those reads to the prior run ID. Other runtimes need equivalent adapters before their loads are counted. Existing `queries.jsonl` retains the prompt and follow-up/reaction fields and is mode-`0600`; the learning dataset excludes follow-ups and reactions.
