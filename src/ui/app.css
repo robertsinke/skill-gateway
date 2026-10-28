@@ -40,6 +40,8 @@
   .nav-item:hover { background: color-mix(in oklab, var(--ink) 7%, var(--paper)); }
   .nav-item.active { background: var(--active); }
   .main { flex: 1; min-width: 0; overflow: auto; padding: 28px 36px 64px; }
+  /* Embedded in BB: the host panel provides the frame and the view is chosen there. */
+  .app.embedded .main { padding: 22px 24px 56px; }
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
   h1 { margin: 0; color: var(--ink); font: 600 24px/30px var(--font); letter-spacing: -0.02em; }
   h2 { margin: 36px 0 8px; color: var(--ink); font: 600 16px/24px var(--font); }

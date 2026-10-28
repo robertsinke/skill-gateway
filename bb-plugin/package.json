@@ -11,7 +11,7 @@
     "name": "Skill Gateway",
     "description": "Owns per-message skill selection: gateway discovery plus Jev, so hosts advertise no skill roster.",
     "branding": {
-      "icon": "Search"
+      "icon": "Target"
     },
     "server": "./server.ts",
     "app": "./app.tsx"

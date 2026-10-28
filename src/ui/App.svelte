@@ -18,6 +18,12 @@
 
   onMount(() => {
     gateway.restoreFold();
+    // Embedded in BB: the host panel owns chrome and navigation, so the
+    // dashboard renders one view without its own sidebar.
+    const params = new URLSearchParams(location.search);
+    embedded = params.get("embedded") === "1";
+    const requested = params.get("view");
+    if (requested && views.some((item) => item.view === requested)) gateway.show(requested as View);
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const tag = document.activeElement?.tagName;
@@ -32,6 +38,8 @@
     return () => document.removeEventListener("keydown", onKey);
   });
 
+  let embedded = $state(false);
+
   function count(view: View): string {
     if (view === "skills") return String(gateway.skills.length);
     if (view === "analytics") return String(gateway.queries);
@@ -39,7 +47,8 @@
   }
 </script>
 
-<div class="app" class:folded={gateway.folded}>
+<div class="app" class:folded={gateway.folded} class:embedded>
+  {#if !embedded}
   <aside class="sidebar">
     <div class="profile">
       <span class="avatar" aria-hidden="true">P</span>
@@ -88,6 +97,7 @@
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" /></svg>
     </button>
   </aside>
+  {/if}
   <main class="main">
     <div data-panel="home" hidden={gateway.view !== "home"}><Home /></div>
     <div data-panel="skills" hidden={gateway.view !== "skills"}><Skills /></div>

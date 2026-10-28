@@ -49,3 +49,10 @@ dashboard's own variables (`--paper`/`--sidebar` ← `--canvas`, `--ink` ← `--
 `--line` ← `--border`, `--active` ← `--accent`). `src/ui/app.css` derives every
 neutral from `--ink` and `--paper` so one mapping covers light and dark; its
 `:root` hexes are the standalone defaults used outside BB.
+
+The panel's navigation belongs to BB: the plugin registers one fixed tab per
+dashboard view (`Skills`, `Router`, `Analytics`, `Settings`) with
+`context: { kind: "nav-panel" }`, and each frame loads
+`?embedded=1&view=<view>`. `App.svelte` drops its own sidebar when `embedded`
+is set, so the host header is the only chrome. The rail icon is `Target`
+(the gateway picks one skill); it is not used by another plugin.
