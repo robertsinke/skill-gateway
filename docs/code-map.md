@@ -38,3 +38,14 @@ Routing index only: implementation files remain authoritative. Runtime paths and
 - **Build/deployment:** `package.json`, `tsconfig.json`, and `vite.config.ts` define output layout. `dist/search.js` is invoked by the prompt hook and gateway skill; `dist/http-mcp.js` is invoked by the package script and plugin launcher; `dist/skill-usage-feedback-cli.js` is the global CLI fallback. Preserve these entrypoints unless updating every consumer.
 
 The flat source/test layout is deliberate for now: module paths are small and correspond to stable build/runtime paths. Group files only when a feature gains enough internal structure to make a new directory clearer than the current ownership boundaries.
+
+## Panel theming
+
+`bb-plugin/components/themed-dashboard.tsx` reads the host's theme tokens from
+`document.documentElement` and posts them into the dashboard frame, re-reading
+on theme, style, and `prefers-color-scheme` changes. `bb-plugin/server.ts`
+injects the receiving script into `index.html` and maps tokens onto the
+dashboard's own variables (`--paper`/`--sidebar` ← `--canvas`, `--ink` ← `--ink`,
+`--line` ← `--border`, `--active` ← `--accent`). `src/ui/app.css` derives every
+neutral from `--ink` and `--paper` so one mapping covers light and dark; its
+`:root` hexes are the standalone defaults used outside BB.

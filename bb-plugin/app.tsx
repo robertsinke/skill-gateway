@@ -1,19 +1,11 @@
 // The panel is the existing Svelte dashboard, served by this plugin on a
 // same-origin route so its /api calls relay through the plugin instead of
-// crossing origins to the gateway server.
+// crossing origins to the gateway server. The host's theme tokens are posted
+// into the frame; without them the dashboard would render its own light theme.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
+import { ThemedDashboard } from "./components/themed-dashboard.tsx";
 
 const DASHBOARD = "/api/v1/plugins/skill-gateway/http/ui/index.html";
-
-function Dashboard() {
-  return (
-    <iframe
-      src={DASHBOARD}
-      title="Skill Gateway"
-      style={{ border: 0, width: "100%", height: "100%", display: "block", background: "transparent" }}
-    />
-  );
-}
 
 export default definePluginApp((app) => {
   app.slots.navPanel({
@@ -21,6 +13,6 @@ export default definePluginApp((app) => {
     title: "Skill Gateway",
     icon: "Search",
     path: "dashboard",
-    component: Dashboard,
+    component: () => <ThemedDashboard src={DASHBOARD} />,
   });
 });

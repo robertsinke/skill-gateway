@@ -16,6 +16,19 @@ const MAX_PROMPT_CHARS = 32_000;
 const MAX_LOADED = 64;
 const SELECT_TIMEOUT_MS = 10_000;
 
+/**
+ * Runs inside the dashboard frame. The host posts its theme tokens; this maps
+ * them onto the dashboard's own variables so the panel follows the app theme.
+ */
+const THEME_BRIDGE = `
+globalThis.__SKILL_GATEWAY_PROXY__="/api/v1/plugins/skill-gateway/http/api";
+addEventListener("message",function(event){var data=event.data;if(!data||data.type!=="skill-gateway-theme")return;
+var tokens=data.tokens||{},root=document.documentElement.style;
+root.setProperty("color-scheme",data.dark?"dark":"light");
+var map={paper:"--canvas",sidebar:"--canvas",ink:"--ink",body:"--ink",secondary:"--muted-foreground",muted:"--subtle-foreground",line:"--border",active:"--accent",font:"--font-sans"};
+for(var name in map){var value=tokens[map[name]];if(value)root.setProperty("--"+name,value);}});
+`;
+
 const requestSchema = z.object({
   prompt: z.string().min(1).max(MAX_PROMPT_CHARS),
   sessionId: z.string().min(1).max(200),
@@ -156,10 +169,7 @@ export default async function plugin(bb: BbPluginApi) {
       const bytes = readFileSync(join(root, relativePath));
       const type = CONTENT_TYPES[extname(relativePath).toLowerCase()] ?? "application/octet-stream";
       if (relativePath !== "index.html") return new Response(bytes, { headers: { "content-type": type } });
-      const html = bytes.toString("utf8").replace(
-        "</head>",
-        `<script>globalThis.__SKILL_GATEWAY_PROXY__="/api/v1/plugins/skill-gateway/http/api";</script></head>`,
-      );
+      const html = bytes.toString("utf8").replace("</head>", `<script>${THEME_BRIDGE}</script></head>`);
       return new Response(html, { headers: { "content-type": type } });
     } catch {
       return null;
