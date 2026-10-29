@@ -12,3 +12,6 @@ dist/
 .DS_Store
 
 skills/cursor-cutover.json
+
+# Working artifacts stay local; the three picker files above predate this rule.
+artifacts/
