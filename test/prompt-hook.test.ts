@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { MODEL_PHASES } from "../src/selection-log.ts";
 import { handle } from "../src/prompt-hook.ts";
 
 const HOOK = fileURLToPath(new URL("../src/prompt-hook.ts", import.meta.url));
@@ -327,6 +328,22 @@ it("injects the shortlist when the gate passes", async () => {
     assert.equal(event.requests[0].status, "error");
     assert.equal(event.requests[0].reason, "timeout");
     assert.equal(typeof event.requests[0].latency_ms, "number");
+  });
+
+  it("only writes model phases the ledger vocabulary knows", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-phase-"));
+    const eventsFile = join(root, "usage-events.jsonl");
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    await handle(
+      { prompt: "please schedule a meeting", session_id: "s1" },
+      { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsFile, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_RERANK_MODE: "shadow" },
+      async () => ({ status: "pass", probability: 0.9, model: "jev-1.13.0", request_attempted: true }),
+      async () => ({ status: "ok", fits: [{ name: "calendar", probability: 0.9 }], selected: ["calendar"], request_attempted: true, estimated_input_tokens: 1, cost_usd: 0, latency_ms: 1 }),
+    );
+    const row = readFileSync(eventsFile, "utf8").trim().split("\n").map(JSON.parse).find((event) => event.event_type === "gate_decision");
+    const phases: string[] = row.requests.map((attempt: { phase: string }) => attempt.phase);
+    assert.ok(phases.length > 1);
+    for (const phase of phases) assert.ok((MODEL_PHASES as readonly string[]).includes(phase), `unknown phase ${phase}`);
   });
 
   it("records the rerank call alongside the gate it followed", async () => {

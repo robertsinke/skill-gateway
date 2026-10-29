@@ -121,7 +121,14 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/** The Jev path called its gate call "ranking" before the two paths shared a vocabulary. */
+/** The model calls a selection can make; both writer paths use these names. */
+export const MODEL_PHASES = ["gate", "rerank"] as const;
+
+/**
+ * The Jev path called its gate call "ranking" before the two paths shared a
+ * vocabulary. Anything else is passed through as written, so a phase that
+ * drifts shows up in the view instead of being quietly renamed.
+ */
 function normalizePhase(phase: string): string {
   return phase === "ranking" ? "gate" : phase;
 }

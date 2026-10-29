@@ -67,6 +67,36 @@ view, newest first, with status counts; `serve.ts` exposes it at
 `/api/selection`. The dashboard's Analytics view keeps the older prompt-hook
 search log, which still fills when a host does not use the gateway.
 
+### `requests`: one entry per model call
+
+Both writer paths record what they actually asked the model, in the same shape,
+so one query spans hosts:
+
+```json
+"requests": [
+  { "phase": "gate",   "status": "ok",    "reason": null,      "latency_ms": 393 },
+  { "phase": "rerank", "status": "error", "reason": "timeout", "latency_ms": 2000 }
+]
+```
+
+- `phase` — `gate` or `rerank` (`MODEL_PHASES` in `src/selection-log.ts`). The
+  Jev path wrote `ranking` for its first call before the vocabulary was shared;
+  the reader still reads those rows as `gate`.
+- `status` — `ok` or `error`, describing that call, not the decision.
+- `reason` — why the call failed (`timeout`, `http_429`,
+  `invalid_answers`, …), `null` when it succeeded.
+- `latency_ms` — that call's own wall time. The row's top-level `latency_ms`
+  stays what it always meant: the gate call for the hook, the whole selection
+  for `select.ts`.
+
+An empty array means no call was attempted — a bypassed gate or no candidates —
+which is not a failure. `src/prompt-hook.ts` writes one entry per call it made
+(gate always when attempted, rerank when shadow or experiment mode ran it);
+`src/select.ts` writes the Jev ranking and rerank calls. The reader turns the
+first failed entry into `failure` (`gate timeout`), which the Selection view
+shows beside the decision's reason. Tests in `test/prompt-hook.test.ts` and
+`test/select.test.ts` assert both writers stay inside `MODEL_PHASES`.
+
 The plugin's `gateway-server` background service owns the dashboard's data
 server: it probes `gatewayServerUrl`, adopts a server that already answers,
 otherwise spawns `serverEntry`, waits for `/api/settings`, and terminates the

@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { readSelectionEvents } from "../src/selection-log.ts";
+import { MODEL_PHASES, readSelectionEvents } from "../src/selection-log.ts";
 
 function ledger(lines: unknown[]): string {
   const path = join(mkdtempSync(join(tmpdir(), "sg-selection-")), "usage-events.jsonl");
@@ -87,6 +87,22 @@ test("reads the Jev path's old 'ranking' phase as the gate call it was", () => {
     },
   ]);
   assert.equal(readSelectionEvents(path).decisions[0]!.failure, "gate timeout");
+});
+
+test("knows only gate and rerank as model phases", () => {
+  assert.deepEqual([...MODEL_PHASES], ["gate", "rerank"]);
+});
+
+test("shows an unknown phase instead of renaming it to one of the known ones", () => {
+  const path = ledger([
+    {
+      event_type: "gate_decision",
+      gate_status: "error",
+      reason: "no answer",
+      requests: [{ phase: "retrieval", status: "error", reason: "timeout", latency_ms: 12 }],
+    },
+  ]);
+  assert.equal(readSelectionEvents(path).decisions[0]!.failure, "retrieval timeout");
 });
 
 test("keeps the host thread so a view can report one conversation", () => {

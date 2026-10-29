@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { selectFromStdin, selectSkill, type RosterSkill } from "../src/select.ts";
+import { MODEL_PHASES } from "../src/selection-log.ts";
 
 function library(): RosterSkill[] {
   const root = mkdtempSync(join(tmpdir(), "sg-select-"));
@@ -113,6 +114,25 @@ test("records the thread the host showed, not just its session", async () => {
     const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.equal(rows[0]!.thread_id, "thr_abc123");
     assert.equal(rows[0]!.session_id, "s1");
+  } finally {
+    delete process.env.SKILL_GATEWAY_EVENTS;
+  }
+});
+
+test("writes only model phases the ledger vocabulary knows", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "sg-select-phases-")), "usage-events.jsonl");
+  process.env.SKILL_GATEWAY_EVENTS = path;
+  try {
+    await selectSkill(
+      { prompt: "stabilize the upload test", roster: library(), platform: "bb" },
+      { apiKey: "test-key", fetcher: fetcherChoosing("flaky-test-fixer") },
+    );
+    const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const requests = rows[0]!.requests as { phase: string }[];
+    assert.ok(requests.length > 0);
+    for (const attempt of requests) {
+      assert.ok((MODEL_PHASES as readonly string[]).includes(attempt.phase), `unknown phase ${attempt.phase}`);
+    }
   } finally {
     delete process.env.SKILL_GATEWAY_EVENTS;
   }
