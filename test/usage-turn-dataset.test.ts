@@ -67,6 +67,33 @@ describe("usage turn dataset", () => {
     assert.deepEqual(result.metadata.unlinked_event_counts, { gate_decisions: 0, skill_loads: 1, queries: 1, feedback_records: 0 });
   });
 
+  it("keeps queued prompts as explicit not-evaluated turns without counting them as gate decisions", () => {
+    const queuedPrompt = "follow up while the agent is busy";
+    const result = buildUsageTurnDataset([gateEvent({
+      turn_id: "queued-turn",
+      prompt_sha256: promptDigest(queuedPrompt),
+      candidate_names: [],
+      candidate_rankings: [],
+      gate_status: "not_evaluated",
+      gate_model: null,
+      probability: null,
+      injected_skill_names: [],
+      request_attempted: false,
+      input_tokens_source: "not_sent",
+      jev_list_cost_usd: null,
+      cost_basis: "not_sent",
+    })], [{
+      user_id: "robert", session_id: "session-1", turn_id: "queued-turn", query: queuedPrompt,
+    }]);
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0]?.query, queuedPrompt);
+    assert.equal(result.rows[0]?.query_match_status, "matched_hash");
+    assert.equal(result.rows[0]?.gate_decisions[0]?.status, "not_evaluated");
+    assert.deepEqual(result.rows[0]?.injected_skill_names, []);
+    assert.equal(result.metadata.turns_with_gate_decision, 0);
+    assert.equal(result.metadata.turns_with_gate_not_evaluated, 1);
+  });
+
   it("adds per-skill explicit feedback only to the exact user/session/turn and excludes passive reactions", () => {
     const feedback = {
       schema_version: 4,

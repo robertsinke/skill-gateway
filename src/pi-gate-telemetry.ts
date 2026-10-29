@@ -20,6 +20,7 @@ export function findLatestGateEvent(contents: string, sessionId: string, promptS
       const event = asRecord(JSON.parse(lines[index]!));
       if (
         event?.event_type === "gate_decision" &&
+        event.gate_status !== "not_evaluated" &&
         event.session_id === sessionId &&
         event.prompt_sha256 === promptSha256
       ) return event;
@@ -30,7 +31,34 @@ export function findLatestGateEvent(contents: string, sessionId: string, promptS
   return null;
 }
 
-export function formatGateFooter(event: RecordValue): string {
+export function sumRecordedGateCosts(contents: string): { total: number; includes_estimates: boolean } {
+  let total = 0;
+  let includes_estimates = false;
+  for (const line of contents.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const event = asRecord(JSON.parse(line));
+      const isGate = event?.event_type === "gate_decision";
+      const isRerank = event?.event_type === "skill_rerank_shadow" || event?.event_type === "skill_rerank_experiment";
+      const cost = finiteNumber(isGate ? event.jev_list_cost_usd : isRerank ? event.cost_usd : null);
+      if ((!isGate && !isRerank) || cost === null || cost < 0) continue;
+      total += cost;
+      if (event.cost_basis === "estimated_input_tokens" || (isRerank && event.input_tokens == null && event.request_attempted === true)) includes_estimates = true;
+    } catch {
+      // Ignore incomplete or malformed log lines.
+    }
+  }
+  return { total, includes_estimates };
+}
+
+type CumulativeGateCost = { total: number; includes_estimates: boolean };
+
+function recordedLogTotalLabel(cumulativeCost?: CumulativeGateCost | null): string {
+  if (!cumulativeCost) return "total n/a";
+  return `total ${cumulativeCost.includes_estimates ? "~" : ""}$${cumulativeCost.total.toFixed(8)}`;
+}
+
+export function formatGateFooter(event: RecordValue, cumulativeCost?: CumulativeGateCost | null): string {
   const status = typeof event.gate_status === "string" ? event.gate_status : "unknown";
   const probability = finiteNumber(event.probability);
   const threshold = finiteNumber(event.threshold);
@@ -47,24 +75,24 @@ export function formatGateFooter(event: RecordValue): string {
     : event.request_attempted === true && finiteNumber(event.estimated_input_tokens) !== null
       ? `~${finiteNumber(event.estimated_input_tokens)} tok`
       : event.request_attempted === false ? "not sent" : "tokens n/a";
-  const cost = finiteNumber(event.jev_list_cost_usd);
-  const costText = cost !== null
-    ? `${event.cost_basis === "estimated_input_tokens" ? "~" : ""}$${cost.toFixed(8)}`
-    : event.request_attempted === false ? "" : "cost n/a";
   const jevText = probability !== null
     ? `Jev ${probability.toFixed(2)}${threshold === null ? "" : `/${threshold.toFixed(2)}`}`
-    : status === "bypassed" ? "gate off"
-      : status === "no_candidates" ? "no Jev call"
-        : status === "search_error" ? "search error" : `Jev ${status}`;
+    : status === "not_evaluated" ? "gate not evaluated"
+      : status === "bypassed" ? "gate off"
+        : status === "no_candidates" ? "no Jev call"
+          : status === "search_error" ? "search error" : `Jev ${status}`;
   const topText = top.length ? ` · search: ${top.join(", ")}` : "";
-  const costSuffix = costText ? ` · ${costText}` : "";
-  return `SG ${status} · ${jevText} · ${candidateNames.length}→${injectedNames.length} · ${tokenText}${costSuffix}${topText}`;
+  const cumulativeText = ` · ${recordedLogTotalLabel(cumulativeCost)}`;
+  const arm = event.experiment_arm === "treatment" ? ` · rerank ${names(event.rerank_selected_names).length}/${candidateNames.length}`
+    : event.experiment_arm === "control" ? " · rerank control" : "";
+  return `SG ${status} · ${jevText} · ${candidateNames.length}→${injectedNames.length} · ${tokenText}${cumulativeText}${arm}${topText}`;
 }
 
 export function formatGateDetails(
   event: RecordValue,
   requestBody: unknown | null,
   candidatesMatch: boolean,
+  cumulativeCost?: CumulativeGateCost | null,
 ): string {
   const status = typeof event.gate_status === "string" ? event.gate_status : "unknown";
   const probability = finiteNumber(event.probability);
@@ -91,9 +119,11 @@ export function formatGateDetails(
     "Skill Gateway — Jev any_skill gate",
     `Decision: ${status}${probability === null ? "" : ` · p=${probability.toFixed(3)} · threshold=${threshold?.toFixed(2) ?? "n/a"}`}`,
     `Injected: ${injected.length ? injected.join(", ") : "none"}`,
+    ...(event.experiment_arm ? [`Experiment arm: ${event.experiment_arm}${event.experiment_arm === "treatment" ? ` · rerank selected ${names(event.rerank_selected_names).join(", ") || "none"}` : ""}`] : []),
     `Request attempted: ${event.request_attempted === true ? "yes" : "no"}`,
     `Usage: ${usage}${outputTokens === null ? "" : ` · ${outputTokens} output tokens`}`,
     `Jev cost: ${costDetails}`,
+    ...(cumulativeCost !== undefined ? [recordedLogTotalLine(cumulativeCost)] : []),
     `Price source: ${priceSource}`,
     `Request body: ${finiteNumber(event.request_body_bytes) ?? "n/a"} bytes · state ${finiteNumber(event.state_characters) ?? "n/a"} chars`,
     "Retrieval order (local search scores; Jev returns one shortlist-level probability, not per-skill scores):",
@@ -106,4 +136,11 @@ export function formatGateDetails(
         : "No request body was sent or reconstructed for this turn.",
   ];
   return lines.join("\n");
+}
+
+function recordedLogTotalLine(cumulativeCost: CumulativeGateCost | null): string {
+  if (!cumulativeCost) return "Recorded log total: unavailable.";
+  const amount = `${cumulativeCost.includes_estimates ? "~" : ""}$${cumulativeCost.total.toFixed(8)}`;
+  const estimate = cumulativeCost.includes_estimates ? " A tilde means at least one included cost was estimated." : "";
+  return `Recorded log total: ${amount} across gate and rerank requests in the local usage-event log.${estimate}`;
 }

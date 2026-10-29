@@ -1,6 +1,7 @@
 import { readTypeSafeKey } from "./secrets.ts";
 
 export const SKILL_GATE_MODEL = "jev-1.13.0";
+export const SKILL_GATE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const SKILL_GATE_THRESHOLD = 0.5;
 export const SKILL_GATE_INPUT_PRICE_USD_PER_MILLION_TOKENS = 0.042;
 
@@ -30,7 +31,14 @@ type GateOptions = {
 
 type RecordValue = Record<string, unknown>;
 
-export function buildSkillGateRequest(prompt: string, candidates: GateCandidate[]) {
+export const BARE_CHECK_CLARIFICATION = 'For a bare "check", "review", or "verify" request, do not invent a specialized target solely from matching words in candidate descriptions.';
+
+export function isBareVerificationRequest(prompt: string): boolean {
+  return /^(?:please\s+)?(?:check|review|verify)(?:\s+please)?[.!?]*$/i.test(prompt.trim());
+}
+
+/** Original control payload, retained for reproducible offline comparisons. */
+export function buildOriginalSkillGateRequest(prompt: string, candidates: GateCandidate[]) {
   const state = {
     prompt,
     candidates: candidates.slice(0, 5).map(({ name, description }) => ({ name, description })),
@@ -51,6 +59,13 @@ export function buildSkillGateRequest(prompt: string, candidates: GateCandidate[
   };
 }
 
+/** Scoped trial: outside bare verification requests, the original body is unchanged. */
+export function buildSkillGateRequest(prompt: string, candidates: GateCandidate[]) {
+  const body = buildOriginalSkillGateRequest(prompt, candidates);
+  if (isBareVerificationRequest(prompt)) body.questions.any_skill.criteria.false += " " + BARE_CHECK_CLARIFICATION;
+  return body;
+}
+
 export function skillGateRequestMetrics(prompt: string, candidates: GateCandidate[]) {
   const body = buildSkillGateRequest(prompt, candidates);
   const serialized = JSON.stringify(body);
@@ -68,6 +83,14 @@ export async function evaluateSkillGate(
   candidates: GateCandidate[],
   options: GateOptions = {},
 ): Promise<GateDecision> {
+  return evaluateSkillGateRequest(buildSkillGateRequest(prompt, candidates), options);
+}
+
+/** Score an already-frozen request without rebuilding or changing its wording. */
+export async function evaluateSkillGateRequest(
+  body: ReturnType<typeof buildSkillGateRequest>,
+  options: GateOptions = {},
+): Promise<GateDecision> {
   const fail = (reason: string, requestAttempted = false): GateDecision => ({
     status: "error",
     probability: null,
@@ -75,7 +98,7 @@ export async function evaluateSkillGate(
     reason,
     request_attempted: requestAttempted,
   });
-  if (!prompt.trim() || candidates.length === 0) return fail("empty_input");
+  if (!body.state.prompt.trim() || body.state.candidates.length === 0) return fail("empty_input");
 
   let apiKey: string | null;
   try {
@@ -85,12 +108,11 @@ export async function evaluateSkillGate(
   }
   if (!apiKey) return fail("credential_unavailable");
 
-  const body = buildSkillGateRequest(prompt, candidates);
   if (JSON.stringify(body.state).length > SKILL_GATE_MAX_STATE_CHARACTERS) return fail("state_too_large");
 
   let response: Response;
   try {
-    response = await (options.fetcher ?? fetch)("https://api.typesafe.ai/v1/systemone", {
+    response = await (options.fetcher ?? fetch)(SKILL_GATE_ENDPOINT, {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(body),

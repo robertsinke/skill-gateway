@@ -3,6 +3,7 @@
   import Analytics from "./Analytics.svelte";
   import Home from "./Home.svelte";
   import Router from "./Router.svelte";
+  import Selection from "./Selection.svelte";
   import Skills from "./Skills.svelte";
   import Settings from "./Settings.svelte";
   import { gateway } from "./state.svelte";
@@ -11,6 +12,7 @@
   const views: { view: View; label: string }[] = [
     { view: "home", label: "Home" },
     { view: "skills", label: "Skills" },
+    { view: "selection", label: "Selection" },
     { view: "router", label: "Router" },
     { view: "analytics", label: "Analytics" },
     { view: "settings", label: "Settings" },
@@ -18,6 +20,12 @@
 
   onMount(() => {
     gateway.restoreFold();
+    // Embedded in BB: the host panel owns chrome and navigation, so the
+    // dashboard renders one view without its own sidebar.
+    const params = new URLSearchParams(location.search);
+    embedded = params.get("embedded") === "1";
+    const requested = params.get("view");
+    if (requested && views.some((item) => item.view === requested)) gateway.show(requested as View);
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const tag = document.activeElement?.tagName;
@@ -29,8 +37,11 @@
     document.addEventListener("keydown", onKey);
     void gateway.load();
     void gateway.loadSearches();
+    void gateway.loadSelection();
     return () => document.removeEventListener("keydown", onKey);
   });
+
+  let embedded = $state(false);
 
   function count(view: View): string {
     if (view === "skills") return String(gateway.skills.length);
@@ -39,7 +50,8 @@
   }
 </script>
 
-<div class="app" class:folded={gateway.folded}>
+<div class="app" class:folded={gateway.folded} class:embedded>
+  {#if !embedded}
   <aside class="sidebar">
     <div class="profile">
       <span class="avatar" aria-hidden="true">P</span>
@@ -88,9 +100,14 @@
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" /></svg>
     </button>
   </aside>
+  {/if}
   <main class="main">
+    {#if gateway.problem}
+      <p class="problem" role="status">Gateway data unavailable: {gateway.problem}</p>
+    {/if}
     <div data-panel="home" hidden={gateway.view !== "home"}><Home /></div>
     <div data-panel="skills" hidden={gateway.view !== "skills"}><Skills /></div>
+    <div data-panel="selection" hidden={gateway.view !== "selection"}><Selection /></div>
     <div data-panel="router" hidden={gateway.view !== "router"}><Router /></div>
     <div data-panel="analytics" hidden={gateway.view !== "analytics"}><Analytics /></div>
     <div data-panel="settings" hidden={gateway.view !== "settings"}><Settings /></div>

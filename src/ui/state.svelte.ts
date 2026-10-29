@@ -1,5 +1,6 @@
+import { apiFetch } from "./api";
 import { asSearch, asSkill } from "./lib/format";
-import type { RemovableCopy, ScanPlace, ScanReport, SearchRow, Skill, View } from "./lib/types";
+import type { Decision, RemovableCopy, ScanPlace, ScanReport, SearchRow, SelectionReport, Skill, View } from "./lib/types";
 
 function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -17,7 +18,36 @@ class Gateway {
   queries = $state(0);
   sessions = $state(0);
   searches = $state<SearchRow[]>([]);
+  decisions = $state<Decision[]>([]);
+  selection = $state<SelectionReport["counts"]>({ pass: 0, reject: 0, error: 0, no_candidates: 0 });
+  selectionSessions = $state(0);
+  selectionTotal = $state(0);
+  selectionTruncated = $state(false);
+  /** One entry per endpoint that could not be read; the shell renders them. */
+  problems = $state<Record<string, string>>({});
   selectedName = $state("");
+
+  get problem(): string | null {
+    const messages = Object.values(this.problems);
+    return messages.length ? [...new Set(messages)].join(" · ") : null;
+  }
+
+  /** Reads one endpoint, recording why it failed instead of pretending it was empty. */
+  private async read(path: string, init: RequestInit = {}): Promise<unknown> {
+    try {
+      const response = await apiFetch(path, init);
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+        throw new Error(detail?.message || detail?.error || `${path} failed (${response.status})`);
+      }
+      const body: unknown = await response.json();
+      delete this.problems[path];
+      return body;
+    } catch (error) {
+      this.problems[path] = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
 
   show(view: View): void {
     this.view = view;
@@ -46,8 +76,8 @@ class Gateway {
   }
 
   async load(): Promise<void> {
-    const response = await fetch("/api/skills");
-    const body: unknown = await response.json();
+    const body = await this.read("/api/skills").catch(() => undefined);
+    if (body === undefined) return;
     const inventory = object(body);
     this.skills = list(inventory?.skills).flatMap((item) => {
       const skill = asSkill(item);
@@ -60,17 +90,50 @@ class Gateway {
   }
 
   async loadSearches(): Promise<void> {
-    const response = await fetch("/api/queries");
-    const body: unknown = await response.json();
+    const body = await this.read("/api/queries").catch(() => undefined);
+    if (body === undefined) return;
     this.searches = list(body).flatMap((item) => {
       const row = asSearch(item);
       return row ? [row] : [];
     });
   }
 
+  async loadSelection(): Promise<void> {
+    const body = await this.read("/api/selection").catch(() => undefined);
+    if (body === undefined) return;
+    const report = object(body);
+    this.decisions = list(report?.decisions).flatMap((item) => {
+      const row = object(item);
+      if (!row || typeof row.status !== "string") return [];
+      const decision: Decision = {
+        timestamp: typeof row.timestamp === "string" ? row.timestamp : "",
+        platform: typeof row.platform === "string" ? row.platform : "unknown",
+        status: row.status,
+        skill: typeof row.skill === "string" ? row.skill : null,
+        reason: typeof row.reason === "string" ? row.reason : null,
+        probability: typeof row.probability === "number" ? row.probability : null,
+        latency_ms: typeof row.latency_ms === "number" ? row.latency_ms : null,
+        candidates: typeof row.candidates === "number" ? row.candidates : 0,
+        session_id: typeof row.session_id === "string" ? row.session_id : null,
+        runtime_policy: typeof row.runtime_policy === "string" ? row.runtime_policy : null,
+      };
+      return [decision];
+    });
+    const counts = object(report?.counts);
+    this.selection = {
+      pass: typeof counts?.pass === "number" ? counts.pass : 0,
+      reject: typeof counts?.reject === "number" ? counts.reject : 0,
+      error: typeof counts?.error === "number" ? counts.error : 0,
+      no_candidates: typeof counts?.no_candidates === "number" ? counts.no_candidates : 0,
+    };
+    this.selectionSessions = typeof report?.sessions === "number" ? report.sessions : 0;
+    this.selectionTotal = typeof report?.total === "number" ? report.total : 0;
+    this.selectionTruncated = report?.truncated === true;
+  }
+
   async places(): Promise<ScanPlace[]> {
-    const response = await fetch("/api/scan/places");
-    const body: unknown = await response.json();
+    const body = await this.read("/api/scan/places").catch(() => undefined);
+    if (body === undefined) return [];
     return list(body).flatMap((item) => {
       const row = object(item);
       if (!row || typeof row.place !== "string" || typeof row.relative !== "string") return [];
@@ -79,7 +142,7 @@ class Gateway {
   }
 
   async scanPlace(relative: string): Promise<ScanReport | null> {
-    const response = await fetch("/api/scan", {
+    const response = await apiFetch("/api/scan", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ relative }),
@@ -107,7 +170,7 @@ class Gateway {
   }
 
   async remove(paths: string[]): Promise<string[]> {
-    const response = await fetch("/api/scan/remove", {
+    const response = await apiFetch("/api/scan/remove", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ paths }),

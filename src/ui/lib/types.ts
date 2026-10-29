@@ -1,4 +1,26 @@
-export type View = "home" | "skills" | "router" | "analytics" | "settings";
+export type View = "home" | "skills" | "selection" | "router" | "analytics" | "settings";
+
+/** One recorded skill-selection decision, as the ledger reports it. */
+export type Decision = {
+  timestamp: string;
+  platform: string;
+  status: string;
+  skill: string | null;
+  reason: string | null;
+  probability: number | null;
+  latency_ms: number | null;
+  candidates: number;
+  session_id: string | null;
+  runtime_policy: string | null;
+};
+
+export type SelectionReport = {
+  decisions: Decision[];
+  counts: { pass: number; reject: number; error: number; no_candidates: number };
+  sessions: number;
+  truncated: boolean;
+  total: number;
+};
 
 export type SortKey = "name" | "description" | "source" | "added" | "uses" | "status";
 

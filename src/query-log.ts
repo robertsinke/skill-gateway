@@ -6,7 +6,7 @@ export const DEFAULT_LOG = `${homedir()}/.local/share/skill-gateway/queries.json
 
 export type QueryRow = Record<string, unknown>;
 export type GateAudit = {
-  status: "pass" | "reject" | "error" | "bypassed" | "no_candidates";
+  status: "pass" | "reject" | "error" | "bypassed" | "no_candidates" | "not_evaluated";
   model: string | null;
   probability: number | null;
   candidates: string[];

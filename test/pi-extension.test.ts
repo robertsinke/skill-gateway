@@ -24,7 +24,7 @@ describe("Pi skill picker extension", () => {
     assert.ok(commands.includes("skill-feedback"));
 
     assert.deepEqual(servers, ["skill_gateway"]);
-    assert.deepEqual(events.sort(), ["agent_start", "before_agent_start", "input", "session_start", "tool_execution_end", "turn_end"]);
+    assert.deepEqual(events.sort(), ["agent_start", "before_agent_start", "input", "message_start", "session_start", "tool_execution_end", "tool_execution_start", "turn_end"]);
   });
 
   it("adds one space after a selected skill and preserves existing suffix text", () => {
@@ -36,6 +36,9 @@ describe("Pi skill picker extension", () => {
 
     const adjacentSuffix = applyBackslashCompletion(["\\arcmore"], 0, 4, { value: "\\archify" }, "\\arc");
     assert.deepEqual(adjacentSuffix, { lines: ["\\archify more"], cursorLine: 0, cursorCol: 9 });
+
+    const inline = applyBackslashCompletion(["Keep this \\arc after"], 0, 14, { value: "\\archify" }, "\\arc");
+    assert.deepEqual(inline, { lines: ["Keep this \\archify after"], cursorLine: 0, cursorCol: 19 });
   });
 
   it("keeps the autocomplete panel at a fixed item count", () => {
