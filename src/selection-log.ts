@@ -43,6 +43,19 @@ const WINDOW_BYTES = 4 * 1024 * 1024;
  * Only fields the dashboard renders are exposed: no prompt text or digest.
  * Counts describe the decisions returned, so tiles and table always agree.
  */
+/**
+ * The newest decision for one thread, for surfaces that show the latest
+ * injection without loading the whole history. `null` when the thread has none.
+ */
+export function readLatestInjection(
+  threadId: string,
+  path: string = process.env.SKILL_GATEWAY_EVENTS?.trim() || DEFAULT_USAGE_EVENTS,
+): SelectionDecision | null {
+  if (!threadId) return null;
+  const report = readSelectionEvents(path, 400);
+  return report.decisions.find((decision) => decision.thread === threadId) ?? null;
+}
+
 export function readSelectionEvents(
   path: string = process.env.SKILL_GATEWAY_EVENTS?.trim() || DEFAULT_USAGE_EVENTS,
   limit = 200,

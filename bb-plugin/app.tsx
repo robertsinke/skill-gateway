@@ -3,9 +3,11 @@
 // crossing origins to the gateway server. The host's theme tokens are posted
 // into the frame, and BB's panel header owns navigation: each view is a fixed
 // tab, so the dashboard renders embedded with no sidebar of its own.
-import { definePluginApp, useBbContext } from "@get-bb/plugin-sdk/app";
+import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import type { BbIconName } from "@get-bb/plugin-sdk/app";
 import { ThemedDashboard } from "./components/themed-dashboard.tsx";
+import { InjectionChip } from "./overlay.tsx";
+import { useThreadId } from "./thread.ts";
 
 const BASE = "/api/v1/plugins/skill-gateway/http/ui/index.html";
 
@@ -21,12 +23,14 @@ const VIEWS: { id: string; title: string; icon: BbIconName }[] = [
 // against the thread that asked, so the dashboard can lead with this one.
 const dashboard = (view: string) =>
   function Dashboard() {
-    const { activeThreadId } = useBbContext();
-    const thread = activeThreadId ? `&thread=${encodeURIComponent(activeThreadId)}` : "";
+    const threadId = useThreadId();
+    const thread = threadId ? `&thread=${encodeURIComponent(threadId)}` : "";
     return <ThemedDashboard src={`${BASE}?embedded=1&view=${view}${thread}`} />;
   };
 
 export default definePluginApp((app) => {
+  app.slots.experimental_appOverlay({ id: "injection-chip", component: InjectionChip });
+
   app.slots.navPanel({
     id: "dashboard",
     title: "Skill Gateway",

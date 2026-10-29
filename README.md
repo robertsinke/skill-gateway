@@ -65,6 +65,15 @@ pi --jev-via-bb                                # default; one selector runs
 
 The plugin also gives BB a **Skill Gateway** sidebar destination (rail icon `Target`). Its panel shows the existing Svelte dashboard, served same-origin from `/api/v1/plugins/skill-gateway/http/ui/`, and its `/api` calls relay through the plugin so the browser never crosses origins. The plugin starts the dashboard's data server itself (`dist/serve.js`, default port 8741) as a background service: it adopts one already listening, starts one when the port is idle, and stops it again on unload. Set `manageServer` to false to run the server yourself.
 
+### Seeing what was injected
+
+Two surfaces, both reading the same decision ledger:
+
+- **In the thread**: a small chip above the composer states the newest decision for the open thread — `Injected ce-work 12:41`, or `No skill 12:38` with the reason in its tooltip. It never intercepts the pointer, so it cannot get between you and the input.
+- **In the panel**: Skill Gateway → Selection leads with *This thread* — every decision for the thread you last had open, with outcome, skill, reason, probability and latency — followed by *Everything* across threads.
+
+The chip is an app overlay (`experimental_appOverlay`): BB has no message-timeline slot, so the transcript itself cannot carry the note. Only the latest decision appears there; the panel holds the history.
+
 ### Cursor models keep their own roster
 
 Cursor's agent process advertises its own skills, and Pi cannot suppress that from the adapter: measured with a sentinel skill, `cursor-agent` listed it by name in a plain run, and `CURSOR_CONFIG_DIR` isolation still listed every skill. Only an isolated `HOME` removes them, which also removes authentication. Hiding one skill does work: adding `disable-model-invocation: true` to its `SKILL.md` dropped it from the roster while the other sentinel stayed. So the roster-free invariant holds for models Pi itself serves, and Cursor models remain the known exception.

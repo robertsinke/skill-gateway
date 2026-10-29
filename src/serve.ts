@@ -5,7 +5,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { preview, saveTargets } from "./check.ts";
 import { logPath, readRecent, suggestMessages } from "./query-log.ts";
-import { readSelectionEvents } from "./selection-log.ts";
+import { readLatestInjection, readSelectionEvents } from "./selection-log.ts";
 import { DEFAULT_LOG } from "./query-log.ts";
 import { gather, gatherPlace, listPlaces, removeCopies } from "./scan.ts";
 import { DEFAULT_ROOT, SearchError, defaultRoots, loadCatalog, loadMerged } from "./search.ts";
@@ -182,6 +182,10 @@ export function start(host = HOST, port = PORT) {
         const logFile = logPath();
         const rows = logFile ? readRecent(logFile, 5000) : [];
         sendJson(response, { name, messages: suggestMessages(rows, name) });
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/injection") {
+        sendJson(response, readLatestInjection(url.searchParams.get("thread") ?? ""));
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/selection") {

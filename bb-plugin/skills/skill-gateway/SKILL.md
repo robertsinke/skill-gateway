@@ -56,3 +56,10 @@ Returns `{name, context, reason, inline, latency_ms, candidates}`. `name` is
   is the only place an injection and its reason are visible on this side, since
   Pi's statusline and its custom messages never reach BB's timeline.
 - HTTP route `/select` requires the plugin token: `bb plugin token skill-gateway`.
+
+## Surfaces
+
+- `experimental_appOverlay` `injection-chip`: a fixed chip above the composer stating the newest decision for the open thread (`Injected ce-work 12:41` / `No skill 12:38`). Pointer-inert; the full reason lives in its tooltip. It reads `GET /api/injection?thread=<id>` every 2.5 s and polls only while a thread route is open.
+- `navPanel` `dashboard` + fixed tabs: the full Selection history, led by *This thread*.
+
+Both resolve the thread through `useThreadId()` in `thread.ts`, which reads the route's `threadId` and otherwise falls back to the last thread the overlay saw — a plugin panel has its own route, so route context alone loses the thread as soon as the panel opens.
