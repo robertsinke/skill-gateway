@@ -3,6 +3,7 @@
   import Analytics from "./Analytics.svelte";
   import Home from "./Home.svelte";
   import Router from "./Router.svelte";
+  import Selection from "./Selection.svelte";
   import Skills from "./Skills.svelte";
   import Settings from "./Settings.svelte";
   import { gateway } from "./state.svelte";
@@ -11,6 +12,7 @@
   const views: { view: View; label: string }[] = [
     { view: "home", label: "Home" },
     { view: "skills", label: "Skills" },
+    { view: "selection", label: "Selection" },
     { view: "router", label: "Router" },
     { view: "analytics", label: "Analytics" },
     { view: "settings", label: "Settings" },
@@ -35,6 +37,7 @@
     document.addEventListener("keydown", onKey);
     void gateway.load();
     void gateway.loadSearches();
+    void gateway.loadSelection();
     return () => document.removeEventListener("keydown", onKey);
   });
 
@@ -101,6 +104,7 @@
   <main class="main">
     <div data-panel="home" hidden={gateway.view !== "home"}><Home /></div>
     <div data-panel="skills" hidden={gateway.view !== "skills"}><Skills /></div>
+    <div data-panel="selection" hidden={gateway.view !== "selection"}><Selection /></div>
     <div data-panel="router" hidden={gateway.view !== "router"}><Router /></div>
     <div data-panel="analytics" hidden={gateway.view !== "analytics"}><Analytics /></div>
     <div data-panel="settings" hidden={gateway.view !== "settings"}><Settings /></div>

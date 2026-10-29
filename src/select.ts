@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { JevSkillSuggestion, type FileSkill, type JevSuggestion } from "./jev-skill-suggestion.ts";
+import { JevSkillSuggestion, JEV_UPSTREAM_DEFAULTS, JEV_UPSTREAM_POLICY, type FileSkill, type JevSuggestion } from "./jev-skill-suggestion.ts";
 import { readTypeSafeKey } from "./secrets.ts";
 import { defaultRoots, loadMerged } from "./search.ts";
+import { appendUsageEvent, promptDigest } from "./usage-events.ts";
 
 /**
  * One provider-neutral skill selection for one user message.
@@ -19,6 +20,10 @@ export type SelectRequest = {
   root?: string;
   /** Skill names already injected in this session. */
   loaded?: string[];
+  /** Host that asked, recorded in the gate ledger. */
+  platform?: string;
+  /** Host session identity, recorded in the gate ledger. */
+  sessionId?: string;
   /** Explicit roster; defaults to the library. Paths must be readable by this process. */
   roster?: RosterSkill[];
 };
@@ -44,6 +49,8 @@ export type SelectResult = {
 export type SelectDependencies = {
   apiKey?: string | null;
   fetcher?: typeof fetch;
+  /** Tests and embedding hosts disable the ledger row; the default records it. */
+  record?: boolean;
   /** Roster provider, replacing the on-disk library when a host resolves skills itself. */
   roster?: RosterSkill[];
 };
@@ -84,6 +91,7 @@ export async function selectSkill(
     ...(request.loaded ? { loaded: request.loaded } : {}),
   });
   const suggestion = await chooser.suggest(request.prompt, roster, request.cwd ?? process.cwd());
+  if (dependencies.record !== false) record(request, suggestion, roster.map((skill) => skill.name));
   return {
     name: suggestion.name,
     context: suggestion.context,
@@ -93,6 +101,42 @@ export async function selectSkill(
     candidates: roster.map((skill) => skill.name),
     requests: suggestion.requests,
   };
+}
+
+/**
+ * One ledger row per selection, whichever host asked. The dashboard reads
+ * these back; a failure here never changes the decision.
+ */
+function record(request: SelectRequest, suggestion: JevSuggestion, candidates: string[]): void {
+  const status = candidates.length === 0 ? "no_candidates" : !suggestion.wide ? "error" : suggestion.name ? "pass" : "reject";
+  const injected = suggestion.name ? [suggestion.name] : [];
+  const reported = suggestion.requests.length > 0 && suggestion.requests.every((entry) => entry.input_tokens !== null);
+  const tokens = suggestion.requests.reduce((sum, entry) => sum + (entry.input_tokens ?? entry.estimated_input_tokens), 0);
+  try {
+    appendUsageEvent({
+      event_type: "gate_decision",
+      platform: request.platform ?? "unknown",
+      session_id: request.sessionId ?? null,
+      turn_id: null,
+      runtime_policy: JEV_UPSTREAM_POLICY,
+      prompt_sha256: promptDigest(request.prompt),
+      candidate_names: candidates,
+      gate_status: status,
+      gate_model: suggestion.wide ? "jev-latest" : null,
+      probability: suggestion.wide?.gate ?? null,
+      threshold: JEV_UPSTREAM_DEFAULTS.gateThreshold,
+      injected_skill_names: injected,
+      injection_kind: suggestion.inline ? "inline_body" : suggestion.name ? "already_loaded_or_file_reference" : "none",
+      request_attempted: suggestion.requests.length > 0,
+      ...(reported ? { input_tokens: tokens } : {}),
+      estimated_input_tokens: tokens,
+      input_tokens_source: reported ? "typesafe_usage" : suggestion.requests.length ? "estimated_utf8_bytes_div_4" : "not_sent",
+      latency_ms: Math.max(0, Math.round(suggestion.latency_ms)),
+      reason: suggestion.reason,
+    });
+  } catch {
+    // Telemetry is best-effort; selection still returns its answer.
+  }
 }
 
 export async function selectFromStdin(
@@ -109,6 +153,8 @@ export async function selectFromStdin(
       ...(typeof request.cwd === "string" ? { cwd: request.cwd } : {}),
       ...(typeof request.root === "string" ? { root: request.root } : {}),
       ...(isStringArray(request.loaded) ? { loaded: request.loaded } : {}),
+      ...(typeof request.platform === "string" ? { platform: request.platform } : {}),
+      ...(typeof request.sessionId === "string" ? { sessionId: request.sessionId } : {}),
       ...(isRoster(request.roster) ? { roster: request.roster } : {}),
     },
     dependencies,

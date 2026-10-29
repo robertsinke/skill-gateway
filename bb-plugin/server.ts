@@ -95,6 +95,8 @@ export default async function plugin(bb: BbPluginApi) {
     const { gatewayEntry, libraryRoot, nodeBinary } = await settings.get();
     const payload = JSON.stringify({
       prompt: request.prompt,
+      platform: "bb",
+      sessionId: request.sessionId,
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...((request.root ?? libraryRoot) ? { root: request.root ?? libraryRoot } : {}),
       loaded: await loadedFor(request.sessionId),

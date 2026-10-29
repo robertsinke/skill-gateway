@@ -56,3 +56,13 @@ dashboard view (`Skills`, `Router`, `Analytics`, `Settings`) with
 `?embedded=1&view=<view>`. `App.svelte` drops its own sidebar when `embedded`
 is set, so the host header is the only chrome. The rail icon is `Target`
 (the gateway picks one skill); it is not used by another plugin.
+
+## Decision ledger
+
+`src/select.ts` appends one `gate_decision` row per selection with the asking
+host (`platform`), session, injected names, candidates, probability, reason,
+and latency; `record: false` disables it for tests and embedding hosts.
+`src/selection-log.ts` reads that ledger back for the dashboard's Selection
+view, newest first, with status counts; `serve.ts` exposes it at
+`/api/selection`. The dashboard's Analytics view keeps the older prompt-hook
+search log, which still fills when a host does not use the gateway.

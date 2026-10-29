@@ -7,16 +7,22 @@
       .sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name))
       .slice(0, 8),
   );
-  const recent = $derived(gateway.searches.slice(0, 5));
+  const injected = $derived(
+    gateway.decisions.filter((row) => row.status === "pass" && row.skill).slice(0, 5),
+  );
+  const total = $derived(
+    gateway.selection.pass + gateway.selection.reject + gateway.selection.error + gateway.selection.no_candidates,
+  );
 </script>
 
 <section>
   <h1>Home</h1>
   <div class="stats">
-    <div><strong>{gateway.skills.length}</strong><span>Skills</span></div>
-    <div><strong>{gateway.queries}</strong><span>Searches</span></div>
+    <div><strong>{gateway.skills.length}</strong><span>Skills in library</span></div>
+    <div><strong>{gateway.selection.pass}</strong><span>Skills injected</span></div>
+    <div><strong>{total}</strong><span>Decisions</span></div>
   </div>
-  <h2>Most returned<span class="caption">Skills a search sent back</span></h2>
+  <h2>Most returned<span class="caption">Skills an older search sent back</span></h2>
   <div class="list">
     {#if ranked.length}
       {#each ranked as skill (skill.name)}
@@ -29,17 +35,17 @@
       <p class="empty">No skill has been returned by a search yet.</p>
     {/if}
   </div>
-  <h2>Recent searches<span class="caption">Messages that were ranked</span></h2>
+  <h2>Last injected<span class="caption">What the gateway chose for a message</span></h2>
   <div class="list">
-    {#if recent.length}
-      {#each recent as row, index (`${row.query}-${index}`)}
-        <button type="button" onclick={() => gateway.show("analytics")}>
-          <span>{row.query}</span>
-          <span class="meta">{row.skills.slice(0, 2).join(", ")}</span>
+    {#if injected.length}
+      {#each injected as row, index (`${row.timestamp}-${index}`)}
+        <button type="button" onclick={() => gateway.select(row.skill ?? "")}>
+          <span>{row.skill}</span>
+          <span class="meta">{row.platform} · {row.reason ?? row.status}</span>
         </button>
       {/each}
     {:else}
-      <p class="empty">No searches yet.</p>
+      <p class="empty">Nothing injected yet. Open Selection for the full decision log.</p>
     {/if}
   </div>
 </section>

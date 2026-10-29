@@ -11,6 +11,7 @@ const BASE = "/api/v1/plugins/skill-gateway/http/ui/index.html";
 
 const VIEWS: { id: string; title: string; icon: BbIconName }[] = [
   { id: "skills", title: "Skills", icon: "Search" },
+  { id: "selection", title: "Selection", icon: "Target" },
   { id: "router", title: "Router", icon: "GitBranch" },
   { id: "analytics", title: "Analytics", icon: "ChartColumn" },
   { id: "settings", title: "Settings", icon: "Settings" },

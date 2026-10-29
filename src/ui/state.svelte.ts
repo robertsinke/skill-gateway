@@ -1,6 +1,6 @@
 import { apiFetch } from "./api";
 import { asSearch, asSkill } from "./lib/format";
-import type { RemovableCopy, ScanPlace, ScanReport, SearchRow, Skill, View } from "./lib/types";
+import type { Decision, RemovableCopy, ScanPlace, ScanReport, SearchRow, SelectionReport, Skill, View } from "./lib/types";
 
 function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -18,6 +18,9 @@ class Gateway {
   queries = $state(0);
   sessions = $state(0);
   searches = $state<SearchRow[]>([]);
+  decisions = $state<Decision[]>([]);
+  selection = $state<SelectionReport["counts"]>({ pass: 0, reject: 0, error: 0, no_candidates: 0 });
+  selectionSessions = $state(0);
   selectedName = $state("");
 
   show(view: View): void {
@@ -67,6 +70,37 @@ class Gateway {
       const row = asSearch(item);
       return row ? [row] : [];
     });
+  }
+
+  async loadSelection(): Promise<void> {
+    const response = await apiFetch("/api/selection");
+    const body: unknown = await response.json();
+    const report = object(body);
+    this.decisions = list(report?.decisions).flatMap((item) => {
+      const row = object(item);
+      if (!row || typeof row.status !== "string") return [];
+      const decision: Decision = {
+        timestamp: typeof row.timestamp === "string" ? row.timestamp : "",
+        platform: typeof row.platform === "string" ? row.platform : "unknown",
+        status: row.status,
+        skill: typeof row.skill === "string" ? row.skill : null,
+        reason: typeof row.reason === "string" ? row.reason : null,
+        probability: typeof row.probability === "number" ? row.probability : null,
+        latency_ms: typeof row.latency_ms === "number" ? row.latency_ms : null,
+        candidates: typeof row.candidates === "number" ? row.candidates : 0,
+        session_id: typeof row.session_id === "string" ? row.session_id : null,
+        runtime_policy: typeof row.runtime_policy === "string" ? row.runtime_policy : null,
+      };
+      return [decision];
+    });
+    const counts = object(report?.counts);
+    this.selection = {
+      pass: typeof counts?.pass === "number" ? counts.pass : 0,
+      reject: typeof counts?.reject === "number" ? counts.reject : 0,
+      error: typeof counts?.error === "number" ? counts.error : 0,
+      no_candidates: typeof counts?.no_candidates === "number" ? counts.no_candidates : 0,
+    };
+    this.selectionSessions = typeof report?.sessions === "number" ? report.sessions : 0;
   }
 
   async places(): Promise<ScanPlace[]> {

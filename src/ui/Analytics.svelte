@@ -10,11 +10,11 @@
   const peak = $derived(ranked[0]?.uses ?? 0);
   const note = $derived.by(() => {
     if (!gateway.queries) {
-      return "No searches yet. The next message in a session is the reaction. Which skill was opened, and whether the task finished, are still blank.";
+      return "No searches recorded. This log comes from the legacy prompt hook, which still writes it when a host does not use the gateway for selection.";
     }
     const scope = gateway.sessions ? ` across ${phrase(gateway.sessions, "session", "sessions")}` : "";
     const shown = gateway.searches.length < gateway.queries ? ` Showing the latest ${gateway.searches.length}.` : "";
-    return `${phrase(gateway.queries, "search", "searches")}${scope}.${shown} The next message is the reaction. Opened skill and finished task are still blank.`;
+    return `${phrase(gateway.queries, "search", "searches")}${scope}.${shown} This is the legacy hook's log; the Selection view holds the gateway's own decisions.`;
   });
 
   function rankedText(row: (typeof gateway.searches)[number]): string {
@@ -24,7 +24,7 @@
 </script>
 
 <section>
-  <h1>Analytics</h1>
+  <h1>Search log</h1>
   <p class="sub">{note}</p>
   <h2>Returned skills</h2>
   <div class="meters">
