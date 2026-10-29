@@ -23,6 +23,8 @@ class Gateway {
   selectionSessions = $state(0);
   selectionTotal = $state(0);
   selectionTruncated = $state(false);
+  /** Failed model calls in the window, by reason; coverage rather than a decision count. */
+  selectionFailures = $state<{ reason: string; count: number }[]>([]);
   /** The thread the host panel is showing, empty when the dashboard runs standalone. */
   thread = $state("");
   /** One entry per endpoint that could not be read; the shell renders them. */
@@ -139,6 +141,10 @@ class Gateway {
     this.selectionSessions = typeof report?.sessions === "number" ? report.sessions : 0;
     this.selectionTotal = typeof report?.total === "number" ? report.total : 0;
     this.selectionTruncated = report?.truncated === true;
+    this.selectionFailures = list(report?.failures).flatMap((item) => {
+      const row = object(item);
+      return row && typeof row.reason === "string" && typeof row.count === "number" ? [{ reason: row.reason, count: row.count }] : [];
+    });
   }
 
   async places(): Promise<ScanPlace[]> {

@@ -89,6 +89,23 @@ test("reads the Jev path's old 'ranking' phase as the gate call it was", () => {
   assert.equal(readSelectionEvents(path).decisions[0]!.failure, "gate timeout");
 });
 
+test("reports failed model calls as coverage, not as decision counts", () => {
+  const path = ledger([
+    { event_type: "gate_decision", gate_status: "error", reason: "no answer", requests: [{ phase: "gate", status: "error", reason: "timeout", latency_ms: 800 }] },
+    { event_type: "gate_decision", gate_status: "error", reason: "no answer", requests: [{ phase: "gate", status: "error", reason: "timeout", latency_ms: 805 }] },
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], requests: [{ phase: "gate", status: "ok", reason: null, latency_ms: 210 }, { phase: "rerank", status: "error", reason: "timeout", latency_ms: 2000 }] },
+    { event_type: "gate_decision", gate_status: "reject", injected_skill_names: [] },
+    { event_type: "gate_decision", gate_status: "error", reason: "no answer" },
+  ]);
+  const report = readSelectionEvents(path);
+  assert.deepEqual(report.failures, [
+    { reason: "gate timeout", count: 2 },
+    { reason: "no answer", count: 1 },
+    { reason: "rerank timeout", count: 1 },
+  ]);
+  assert.deepEqual(report.counts, { pass: 1, reject: 1, error: 3, no_candidates: 0 });
+});
+
 test("knows only gate and rerank as model phases", () => {
   assert.deepEqual([...MODEL_PHASES], ["gate", "rerank"]);
 });

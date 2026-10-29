@@ -44,6 +44,8 @@ Reports compare common scored cases, expose failed/pending requests, and separat
 
 **What the case count is and is not.** A label exists only for a skill the host actually injected: the feedback UI asks about suggestions the user saw. A turn where the gate declined, failed, or found no candidates therefore contributes no label and no case, which is why the prepared case count is a sample of *labelled passing turns*, not of all turns. Failed gates are reported separately as coverage (`failed_gate_turns`), and the live exclusions distinguish a gate that declined (`gate_declined`) from a gate that never answered (`gate_failed`), so a run that silently lost turns to timeouts cannot be read as a run that found nothing to inject.
 
+`gate_not_passed` is a legacy fallback and should normally never fire: it only counts a turn whose gate rows are missing or duplicated, where neither decline nor failure can be named. Seeing it in a report means the gate/rerank evidence for that turn is malformed, not that the gate said no.
+
 Live records now carry `rerank_policy`, `rerank_judgment` and `rerank_threshold` in both treatment results and control gate rows. The evaluator reports recorded policy groups separately, rejects contradictory arms/hashes/candidate lists, and never reclassifies historical selections using today's threshold. Preserve the policy boundary when reviewing fresh feedback; skill loads remain a behavior proxy, not relevance labels or task success.
 
 ## Current Pi behavior

@@ -102,7 +102,9 @@ draws its cases from labelled *passing* turns. Its report says so: live
 exclusions split `gate_declined` from `gate_failed`, and `failed_gate_turns`
 counts failed gates across every turn in the dataset — a coverage figure, not a
 metric. Adding to either list must not change case counts or the existing
-metrics. Tests in `test/prompt-hook.test.ts` and
+metrics. `gate_not_passed` survives only as a fallback for a turn whose gate rows
+are missing or duplicated; a report that shows it is a data problem, not a
+decline. Tests in `test/prompt-hook.test.ts` and
 `test/select.test.ts` assert both writers stay inside `MODEL_PHASES`.
 
 The plugin's `gateway-server` background service owns the dashboard's data

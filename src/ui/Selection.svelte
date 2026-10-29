@@ -7,6 +7,8 @@
     gateway.selection.pass + gateway.selection.reject + gateway.selection.error + gateway.selection.no_candidates,
   );
   const share = $derived(total ? Math.round((gateway.selection.pass / total) * 100) : 0);
+  const failed = $derived(gateway.selectionFailures.reduce((sum, item) => sum + item.count, 0));
+  const failedShare = $derived(total ? Math.round((failed / total) * 100) : 0);
   const mine = $derived(gateway.threadDecisions);
   const latest = $derived(mine[0] ?? null);
   const summary = $derived.by(() => {
@@ -97,6 +99,17 @@
     <div><strong>{gateway.selection.error}</strong><span>Failed</span></div>
     <div><strong>{gateway.selection.no_candidates}</strong><span>No candidates</span></div>
   </div>
+
+  <h2>Coverage<span class="caption">Failed model calls, counted separately from the decisions</span></h2>
+  <p class="sub">
+    {#if failed}
+      {phrase(failed, "decision", "decisions")} of {total} ({failedShare}%) ran into a failed model call and injected nothing. Those are not declines — the gate never answered.{#if gateway.selectionFailures.length} {gateway.selectionFailures.map((item) => `${item.reason} ×${item.count}`).join(", ")}.{/if}
+    {:else if total}
+      No failed model calls in this window.
+    {:else}
+      Nothing to cover yet.
+    {/if}
+  </p>
 
   <h2>Recent decisions<span class="caption">Newest first, from every host</span></h2>
   <table class="sheet">

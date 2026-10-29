@@ -22,6 +22,7 @@ export type SelectionReport = {
   sessions: number;
   truncated: boolean;
   total: number;
+  failures: { reason: string; count: number }[];
 };
 
 export type SortKey = "name" | "description" | "source" | "added" | "uses" | "status";

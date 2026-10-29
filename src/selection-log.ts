@@ -28,6 +28,11 @@ export type SelectionReport = {
   truncated: boolean;
   /** Gate decisions seen in the window. */
   total: number;
+  /**
+   * Coverage, not a metric: model calls that failed, by reason, over the
+   * decisions returned. A failed call injected nothing, which is not a decline.
+   */
+  failures: { reason: string; count: number }[];
 };
 
 /** The ledger grows without bound, so the dashboard reads only its tail. */
@@ -44,7 +49,7 @@ export function readSelectionEvents(
 ): SelectionReport {
   const counts = { pass: 0, reject: 0, error: 0, no_candidates: 0 };
   const sessions = new Set<string>();
-  const empty: SelectionReport = { decisions: [], counts, sessions: 0, truncated: false, total: 0 };
+  const empty: SelectionReport = { decisions: [], counts, sessions: 0, truncated: false, total: 0, failures: [] };
   if (!existsSync(path)) return empty;
 
   const window = readWindow(path);
@@ -70,7 +75,17 @@ export function readSelectionEvents(
     if (decision.status in counts) counts[decision.status as keyof typeof counts] += 1;
     if (decision.session_id) sessions.add(decision.session_id);
   }
-  return { decisions, counts, sessions: sessions.size, truncated: window.clipped || total > decisions.length, total };
+  const byFailure = new Map<string, number>();
+  for (const decision of decisions) {
+    // Rows written before per-call recording still failed; name what they do say
+    // rather than dropping them from the count.
+    const failure = decision.failure ?? (decision.status === "error" ? decision.reason ?? "failed" : null);
+    if (failure) byFailure.set(failure, (byFailure.get(failure) ?? 0) + 1);
+  }
+  const failures = [...byFailure.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason));
+  return { decisions, counts, sessions: sessions.size, truncated: window.clipped || total > decisions.length, total, failures };
 }
 
 /** Reads the last `WINDOW_BYTES` of the ledger, dropping a half line at the seam. */
