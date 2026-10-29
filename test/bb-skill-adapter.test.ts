@@ -105,6 +105,27 @@ test("claims the session, clears the roster, and injects one selection", async (
   assert.equal(process.env.SKILL_GATEWAY_BB_SESSION, undefined);
 });
 
+test("does not run automatic selection when a BB skill mention already resolved", async () => {
+  let calls = 0;
+  const fetcher = (async () => {
+    calls += 1;
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  const { pi, handlers, ctx } = harness();
+  const register = (await import("../extensions/jev-skill-suggestion-bb.ts")).default;
+  register(pi as any, { serverUrl: "http://bb", token: "t", fetcher });
+
+  const event = {
+    messageType: "user",
+    prompt: "Make a plan\n\n<!-- skill-gateway-selected-skill -->\nkw:plan\n\nUse the plan workflow.",
+    systemPromptOptions: { skills: [{ name: "native" }] },
+  };
+  const output = await handlers.get("before_agent_start")!(event, ctx);
+  assert.equal(output, undefined);
+  assert.equal(calls, 0);
+  assert.deepEqual(event.systemPromptOptions.skills, []);
+});
+
 test("keeps the roster hidden when BB cannot answer", async () => {
   const fetcher = (async () => new Response("{}", { status: 500 })) as typeof fetch;
   const { pi, handlers, ctx } = harness();

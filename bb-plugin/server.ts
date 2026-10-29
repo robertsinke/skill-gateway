@@ -11,6 +11,9 @@ import { homedir } from "node:os";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { launchdJobForServer } from "./server-supervision";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { createSkillMentionProvider, type GatewayToolCall } from "./skill-mention";
 import { z } from "zod";
 
 const MAX_PROMPT_CHARS = 32_000;
@@ -105,6 +108,30 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   type Answer = z.infer<typeof answerSchema>;
+
+  const callGatewayTool: GatewayToolCall = async (name, args) => {
+    const endpoint = process.env.SKILL_GATEWAY_MCP_URL || "http://127.0.0.1:8742/mcp";
+    const client = new Client({ name: "skill-gateway-bb-mentions", version: "0.1.0" });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+      const result: unknown = await client.callTool({ name, arguments: args }, undefined, { timeout: 1_500 });
+      const record = result && typeof result === "object" ? result as Record<string, unknown> : {};
+      const content = Array.isArray(record.content) ? record.content.flatMap((item: unknown) =>
+        item && typeof item === "object" && "type" in item && item.type === "text" && "text" in item && typeof item.text === "string"
+          ? [{ type: "text", text: item.text }]
+          : [],
+      ) : [];
+      return {
+        isError: record.isError === true,
+        content,
+        structuredContent: record.structuredContent,
+      };
+    } finally {
+      await client.close().catch(() => {});
+    }
+  };
+
+  bb.ui.registerMentionProvider(createSkillMentionProvider(callGatewayTool));
 
   async function select(
     request: z.infer<typeof requestSchema>,

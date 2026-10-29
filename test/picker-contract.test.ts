@@ -5,7 +5,7 @@ import {
   parseSkillSelection,
   replaceSkillSelection,
   skillCompletions,
-  skillReadPrompt,
+  nativeSkillCommand,
 } from "../src/picker-contract.ts";
 
 describe("skill picker contract", () => {
@@ -23,8 +23,7 @@ describe("skill picker contract", () => {
     const text = "Review this \\archify before sending";
     const selection = parseSkillSelection(text);
     assert.deepEqual(selection, { name: "archify", start: 12, end: 20 });
-    assert.equal(replaceSkillSelection(text, selection!, skillReadPrompt("archify")),
-      `Review this ${skillReadPrompt("archify")} before sending`);
+    assert.equal(nativeSkillCommand(text, selection!, "archify"), "/skill:archify Review this before sending");
   });
 
   it("ignores ordinary and escaped backslashes", () => {
@@ -50,10 +49,11 @@ describe("skill picker contract", () => {
     assert.equal(findActiveSkillCompletion("path\\arc", 8), null);
   });
 
-  it("builds an exact-name read instruction without embedding a path", () => {
-    const prompt = skillReadPrompt("kw:plan");
-    assert.match(prompt, /skills_read_skill/);
-    assert.match(prompt, /"kw:plan"/);
-    assert.doesNotMatch(prompt, /\/Users\/|\.local\/share/);
+  it("routes selected skills through Pi's native skill command and preserves the request", () => {
+    const text = "Review this \\archify before sending";
+    const selection = parseSkillSelection(text)!;
+    assert.equal(nativeSkillCommand(text, selection, "archify"), "/skill:archify Review this before sending");
+    assert.equal(nativeSkillCommand("\\archify show the new architecture", parseSkillSelection("\\archify show")!, "archify"), "/skill:archify show the new architecture");
+    assert.equal(nativeSkillCommand("\\kw:plan", parseSkillSelection("\\kw:plan")!, "kw:plan"), null);
   });
 });

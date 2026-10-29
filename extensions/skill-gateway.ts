@@ -11,7 +11,7 @@ import { appendUsageEvent, DEFAULT_USAGE_EVENTS, promptDigest } from "../src/usa
 import { findLatestGateEvent, formatGateDetails, formatGateFooter, sumRecordedGateCosts } from "../src/pi-gate-telemetry.ts";
 import { createFeedbackWidget } from "../src/pi-feedback-widget.ts";
 import { searchSkillUsageTurns, updateSkillUsageFeedback } from "../src/skill-usage-feedback.ts";
-import { findActiveSkillCompletion, parseSkillSelection, replaceSkillSelection, skillCompletions, skillReadPrompt } from "../src/picker-contract.ts";
+import { findActiveSkillCompletion, nativeSkillCommand, parseSkillSelection, skillCompletions } from "../src/picker-contract.ts";
 
 type SuggestionPayload = {
   results: { name: string; description: string }[];
@@ -606,6 +606,12 @@ export default function (pi: ExtensionAPI): void {
     if (gateDebug?.event) showCurrentFeedback(ctx, gateDebug, false);
   });
 
+  pi.on("resources_discover", () => ({
+    skillPaths: process.env.SKILL_GATEWAY_ROOT?.trim()
+      ? [process.env.SKILL_GATEWAY_ROOT.trim()]
+      : defaultRoots(),
+  }));
+
   pi.on("session_start", (_event, ctx) => {
     failureShown = false;
     gateDebug = undefined;
@@ -701,7 +707,11 @@ export default function (pi: ExtensionAPI): void {
         if (ctx.hasUI) ctx.ui.notify("Skill names must be 200 characters or fewer.", "error");
         return { action: "handled" };
       }
-      const transformedText = replaceSkillSelection(text, selection, skillReadPrompt(exact.name));
+      const transformedText = nativeSkillCommand(text, selection, exact.name);
+      if (!transformedText) {
+        if (ctx.hasUI) ctx.ui.notify(`Pi's native skill command cannot load the skill name ${JSON.stringify(exact.name)}; names must be lowercase letters, numbers, and single hyphens (max 64 characters).`, "error");
+        return { action: "handled" };
+      }
       if (behavior) queueInput(text, transformedText, behavior, ctx);
       return { action: "transform", text: transformedText, images: event.images };
     } catch (error) {

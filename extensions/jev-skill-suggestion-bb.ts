@@ -10,6 +10,7 @@
  */
 import { execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SKILL_MENTION_MARKER } from "../bb-plugin/skill-mention.ts";
 
 const ROUTE = "/api/v1/plugins/skill-gateway/http/select";
 const PLUGIN_ID = "skill-gateway";
@@ -101,7 +102,7 @@ export default function jevViaBb(pi: ExtensionAPI, options: Options & { enabledB
     event.systemPromptOptions.skills = [];
     const prompt = event.prompt.trim();
     if (event.messageType !== "user" || !prompt) return;
-    if (/^\/\S/.test(prompt) || /^<skill name="[^"]+" location="/.test(prompt)) return;
+    if (/^\/\S/.test(prompt) || /^<skill name="[^"]+" location="/.test(prompt) || prompt.includes(SKILL_MENTION_MARKER)) return;
 
     let selection: BbSelection;
     try {

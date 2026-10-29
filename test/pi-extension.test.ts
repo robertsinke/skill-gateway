@@ -4,18 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import extension, { applyBackslashCompletion, fixedHeightAutocompleteItems } from "../extensions/skill-gateway.ts";
-import { skillReadPrompt } from "../src/picker-contract.ts";
 import { promptDigest } from "../src/usage-events.ts";
 
 describe("Pi skill picker extension", () => {
   it("registers live backslash autocomplete and input dispatch", () => {
     const events: string[] = [];
+    const handlers = new Map<string, (...args: any[]) => unknown>();
     const servers: string[] = [];
     const commands: string[] = [];
     extension({
       registerMcpServer(name: string) { servers.push(name); },
       registerCommand(name: string) { commands.push(name); },
-      on(event: string) { events.push(event); },
+      on(event: string, handler: (...args: any[]) => unknown) { events.push(event); handlers.set(event, handler); },
     } as never);
     assert.ok(events.includes("before_agent_start"));
     assert.ok(events.includes("agent_start"));
@@ -24,7 +24,9 @@ describe("Pi skill picker extension", () => {
     assert.ok(commands.includes("skill-feedback"));
 
     assert.deepEqual(servers, ["skill_gateway"]);
-    assert.deepEqual(events.sort(), ["agent_start", "before_agent_start", "input", "message_start", "session_start", "tool_execution_end", "tool_execution_start", "turn_end"]);
+    assert.deepEqual(events.sort(), ["agent_start", "before_agent_start", "input", "message_start", "resources_discover", "session_start", "tool_execution_end", "tool_execution_start", "turn_end"]);
+    const discovered = handlers.get("resources_discover")!({ cwd: process.cwd(), reason: "startup" }) as { skillPaths: string[] };
+    assert.ok(discovered.skillPaths.length > 0, "the private library roots are registered with Pi's native resource loader");
   });
 
   it("adds one space after a selected skill and preserves existing suffix text", () => {
@@ -199,10 +201,4 @@ describe("Pi skill picker extension", () => {
     }
   });
 
-  it("builds an exact-name read instruction without embedding a path", () => {
-    const prompt = skillReadPrompt("kw:plan");
-    assert.match(prompt, /skills_read_skill/);
-    assert.match(prompt, /"kw:plan"/);
-    assert.doesNotMatch(prompt, /\/Users\/|\.local\/share/);
-  });
 });
