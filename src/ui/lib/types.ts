@@ -18,6 +18,8 @@ export type SelectionReport = {
   decisions: Decision[];
   counts: { pass: number; reject: number; error: number; no_candidates: number };
   sessions: number;
+  truncated: boolean;
+  total: number;
 };
 
 export type SortKey = "name" | "description" | "source" | "added" | "uses" | "status";

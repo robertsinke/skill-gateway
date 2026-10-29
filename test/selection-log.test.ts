@@ -45,4 +45,34 @@ test("honours the limit and flags truncation", () => {
   const report = readSelectionEvents(ledger(events), 2);
   assert.equal(report.decisions.length, 2);
   assert.equal(report.truncated, true);
+  assert.equal(report.total, 5);
+  assert.deepEqual(report.counts, { pass: 2, reject: 0, error: 0, no_candidates: 0 });
+});
+
+test("counts describe the returned decisions, not rows the view cannot show", () => {
+  const events = [
+    ...Array.from({ length: 3 }, () => ({ event_type: "gate_decision", gate_status: "reject", injected_skill_names: [], platform: "bb" })),
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["ce-debug"], platform: "bb" },
+  ];
+  const report = readSelectionEvents(ledger(events), 1);
+  assert.deepEqual(report.counts, { pass: 1, reject: 0, error: 0, no_candidates: 0 });
+  assert.equal(report.total, 4);
+  assert.equal(report.truncated, true);
+});
+
+test("reads only the tail of a ledger past the window size", () => {
+  const filler = { event_type: "gate_decision", gate_status: "reject", injected_skill_names: [], platform: "old", reason: "x".repeat(1024) };
+  const path = ledger([
+    ...Array.from({ length: 4500 }, () => filler),
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["ce-debug"], platform: "recent" },
+  ]);
+  const report = readSelectionEvents(path, 5);
+  assert.equal(report.decisions[0]!.platform, "recent");
+  assert.equal(report.truncated, true);
+  assert.ok(report.decisions.length <= 5);
+});
+
+test("reads a writer's candidate count when names are not stored", () => {
+  const path = ledger([{ event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], candidate_count: 148 }]);
+  assert.equal(readSelectionEvents(path).decisions[0]!.candidates, 148);
 });

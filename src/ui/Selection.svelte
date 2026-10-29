@@ -27,7 +27,9 @@
   <h1>Selection</h1>
   <p class="sub">
     {#if total}
-      {phrase(total, "decision", "decisions")} across {phrase(gateway.selectionSessions, "session", "sessions")}. {share}% injected a skill; the rest declined or failed before injection.
+      {phrase(total, "decision", "decisions")} across {phrase(gateway.selectionSessions, "session", "sessions")}. {share}% injected a skill; the rest declined or failed before injection.{#if gateway.selectionTruncated} Showing the newest {gateway.decisions.length} of {gateway.selectionTotal}.{/if}
+    {:else if gateway.problem}
+      These counts load from the gateway's data server, which is not answering right now.
     {:else}
       No selection has been recorded yet. Every host that asks for a skill writes one row here.
     {/if}

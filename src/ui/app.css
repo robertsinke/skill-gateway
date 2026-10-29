@@ -158,3 +158,4 @@
   .compact-field { max-width: none; }
   .compact-field textarea { min-height: 130px; font-size: 14px; line-height: 20px; }
   @media (max-width: 760px) { .metadata-fields { grid-template-columns: 1fr; } .section-line { display: block; } .compact.action { margin-top: 12px; } }
+  .problem { margin: 0 0 18px; padding: 10px 12px; border: 1px solid color-mix(in oklab, var(--ink) 14%, var(--paper)); border-radius: 10px; background: color-mix(in oklab, var(--ink) 5%, var(--paper)); color: var(--ink); font: 500 13px/18px var(--font); }

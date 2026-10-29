@@ -102,6 +102,9 @@
   </aside>
   {/if}
   <main class="main">
+    {#if gateway.problem}
+      <p class="problem" role="status">Gateway data unavailable: {gateway.problem}</p>
+    {/if}
     <div data-panel="home" hidden={gateway.view !== "home"}><Home /></div>
     <div data-panel="skills" hidden={gateway.view !== "skills"}><Skills /></div>
     <div data-panel="selection" hidden={gateway.view !== "selection"}><Selection /></div>

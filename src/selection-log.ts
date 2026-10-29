@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 
 export const DEFAULT_USAGE_EVENTS = `${homedir()}/.local/share/skill-gateway/usage-events.jsonl`;
@@ -21,12 +21,19 @@ export type SelectionReport = {
   decisions: SelectionDecision[];
   counts: { pass: number; reject: number; error: number; no_candidates: number };
   sessions: number;
+  /** Older decisions exist beyond the returned window. */
   truncated: boolean;
+  /** Gate decisions seen in the window. */
+  total: number;
 };
+
+/** The ledger grows without bound, so the dashboard reads only its tail. */
+const WINDOW_BYTES = 4 * 1024 * 1024;
 
 /**
  * Reads the gate ledger backwards and returns the newest decisions first.
  * Only fields the dashboard renders are exposed: no prompt text or digest.
+ * Counts describe the decisions returned, so tiles and table always agree.
  */
 export function readSelectionEvents(
   path: string = process.env.SKILL_GATEWAY_EVENTS?.trim() || DEFAULT_USAGE_EVENTS,
@@ -34,12 +41,16 @@ export function readSelectionEvents(
 ): SelectionReport {
   const counts = { pass: 0, reject: 0, error: 0, no_candidates: 0 };
   const sessions = new Set<string>();
-  if (!existsSync(path)) return { decisions: [], counts, sessions: 0, truncated: false };
+  const empty: SelectionReport = { decisions: [], counts, sessions: 0, truncated: false, total: 0 };
+  if (!existsSync(path)) return empty;
 
-  const lines = readFileSync(path, "utf8").split("\n");
+  const window = readWindow(path);
+  if (!window) return empty;
+
   const decisions: SelectionDecision[] = [];
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index]?.trim();
+  let total = 0;
+  for (let index = window.lines.length - 1; index >= 0; index -= 1) {
+    const line = window.lines[index]?.trim();
     if (!line) continue;
     let event: Record<string, unknown>;
     try {
@@ -50,18 +61,43 @@ export function readSelectionEvents(
     if (event.event_type !== "gate_decision") continue;
     const decision = toDecision(event);
     if (!decision) continue;
+    total += 1;
+    if (decisions.length >= limit) continue;
+    decisions.push(decision);
     if (decision.status in counts) counts[decision.status as keyof typeof counts] += 1;
     if (decision.session_id) sessions.add(decision.session_id);
-    if (decisions.length < limit) decisions.push(decision);
   }
-  return { decisions, counts, sessions: sessions.size, truncated: lines.length > 0 && decisions.length === limit };
+  return { decisions, counts, sessions: sessions.size, truncated: window.clipped || total > decisions.length, total };
+}
+
+/** Reads the last `WINDOW_BYTES` of the ledger, dropping a half line at the seam. */
+function readWindow(path: string): { lines: string[]; clipped: boolean } | null {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const start = Math.max(0, size - WINDOW_BYTES);
+    const buffer = Buffer.alloc(size - start);
+    if (buffer.length === 0) return { lines: [], clipped: false };
+    readSync(fd, buffer, 0, buffer.length, start);
+    const lines = buffer.toString("utf8").split("\n");
+    if (start > 0) lines.shift();
+    return { lines, clipped: start > 0 };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function toDecision(event: Record<string, unknown>): SelectionDecision | null {
   const status = text(event.gate_status);
   if (!status) return null;
   const names = Array.isArray(event.injected_skill_names) ? event.injected_skill_names.filter((name) => typeof name === "string") : [];
-  const candidates = Array.isArray(event.candidate_names) ? event.candidate_names.length : 0;
+  const candidateCount = typeof event.candidate_count === "number" ? event.candidate_count : null;
+  const candidates = candidateCount ?? (Array.isArray(event.candidate_names) ? event.candidate_names.length : 0);
   return {
     timestamp: text(event.timestamp) ?? "",
     platform: text(event.platform) ?? "unknown",
