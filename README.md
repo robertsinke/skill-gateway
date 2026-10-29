@@ -69,7 +69,7 @@ The plugin also gives BB a **Skill Gateway** sidebar destination (rail icon `Tar
 
 Two surfaces, both reading the same decision ledger:
 
-- **In the thread**: a small chip above the composer states the newest decision for the open thread — `Injected ce-work 12:41`, or `No skill 12:38` with the reason in its tooltip. It never intercepts the pointer, so it cannot get between you and the input.
+- **In the thread**: a small chip on the composer's context-ring row states the newest decision for the open thread — `Injected ce-work 12:41`, or `No skill 12:38`. Hovering it lists the last four turns with their outcome and latency. It is measured against the host's context ring at runtime, because an overlay has no row of its own.
 - **In the panel**: Skill Gateway → Selection leads with *This thread* — every decision for the thread you last had open, with outcome, skill, reason, probability and latency — followed by *Everything* across threads.
 
 The chip is an app overlay (`experimental_appOverlay`): BB has no message-timeline slot, so the transcript itself cannot carry the note. Only the latest decision appears there; the panel holds the history.

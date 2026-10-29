@@ -44,16 +44,18 @@ const WINDOW_BYTES = 4 * 1024 * 1024;
  * Counts describe the decisions returned, so tiles and table always agree.
  */
 /**
- * The newest decision for one thread, for surfaces that show the latest
- * injection without loading the whole history. `null` when the thread has none.
+ * The thread's newest decisions, newest first, for surfaces that show the latest
+ * injection and a short history without loading the whole ledger.
  */
-export function readLatestInjection(
+export function readThreadInjections(
   threadId: string,
+  limit = 4,
   path: string = process.env.SKILL_GATEWAY_EVENTS?.trim() || DEFAULT_USAGE_EVENTS,
-): SelectionDecision | null {
-  if (!threadId) return null;
-  const report = readSelectionEvents(path, 400);
-  return report.decisions.find((decision) => decision.thread === threadId) ?? null;
+): SelectionDecision[] {
+  if (!threadId || limit <= 0) return [];
+  return readSelectionEvents(path, 400)
+    .decisions.filter((decision) => decision.thread === threadId)
+    .slice(0, limit);
 }
 
 export function readSelectionEvents(

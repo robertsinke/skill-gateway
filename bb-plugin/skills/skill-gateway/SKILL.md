@@ -59,7 +59,7 @@ Returns `{name, context, reason, inline, latency_ms, candidates}`. `name` is
 
 ## Surfaces
 
-- `experimental_appOverlay` `injection-chip`: a fixed chip above the composer stating the newest decision for the open thread (`Injected ce-work 12:41` / `No skill 12:38`). Pointer-inert; the full reason lives in its tooltip. It reads `GET /api/injection?thread=<id>` every 2.5 s and polls only while a thread route is open.
+- `experimental_appOverlay` `injection-chip`: a chip on the composer's context-ring row stating the newest decision for the open thread (`Injected ce-work 12:41` / `No skill 12:38`), and the last four turns on hover. It positions itself from the measured `[aria-label^="Context window"]` box (falling back to the old corner when a thread has no composer), reads `GET /api/injection?thread=<id>&limit=4` every 2.5 s, and polls only while a thread route is open.
 - `navPanel` `dashboard` + fixed tabs: the full Selection history, led by *This thread*.
 
 Both resolve the thread through `useThreadId()` in `thread.ts`, which reads the route's `threadId` and otherwise falls back to the last thread the overlay saw — a plugin panel has its own route, so route context alone loses the thread as soon as the panel opens.

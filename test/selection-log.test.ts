@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { MODEL_PHASES, readLatestInjection, readSelectionEvents } from "../src/selection-log.ts";
+import { MODEL_PHASES, readSelectionEvents, readThreadInjections } from "../src/selection-log.ts";
 
 function ledger(lines: unknown[]): string {
   const path = join(mkdtempSync(join(tmpdir(), "sg-selection-")), "usage-events.jsonl");
@@ -89,16 +89,18 @@ test("reads the Jev path's old 'ranking' phase as the gate call it was", () => {
   assert.equal(readSelectionEvents(path).decisions[0]!.failure, "gate timeout");
 });
 
-test("finds the newest decision for one thread", () => {
+test("returns a thread's newest decisions, newest first and bounded", () => {
   const path = ledger([
-    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["old"], thread_id: "t1" },
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["oldest"], thread_id: "t1" },
     { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["other"], thread_id: "t2" },
-    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["new"], thread_id: "t1" },
+    { event_type: "gate_decision", gate_status: "reject", injected_skill_names: [], thread_id: "t1" },
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["newest"], thread_id: "t1" },
   ]);
-  assert.deepEqual(readLatestInjection("t1", path)?.skill, "new");
-  assert.equal(readLatestInjection("t2", path)?.skill, "other");
-  assert.equal(readLatestInjection("missing", path), null);
-  assert.equal(readLatestInjection("", path), null);
+  assert.deepEqual(readThreadInjections("t1", 3, path).map((row) => row.skill), ["newest", null, "oldest"]);
+  assert.deepEqual(readThreadInjections("t1", 1, path).map((row) => row.skill), ["newest"]);
+  assert.deepEqual(readThreadInjections("t1", 2, path).map((row) => row.skill), ["newest", null]);
+  assert.deepEqual(readThreadInjections("missing", 3, path), []);
+  assert.deepEqual(readThreadInjections("t1", 0, path), []);
 });
 
 test("reports failed model calls as coverage, not as decision counts", () => {
