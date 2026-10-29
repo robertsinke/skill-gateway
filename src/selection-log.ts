@@ -15,6 +15,8 @@ export type SelectionDecision = {
   candidates: number;
   session_id: string | null;
   thread: string | null;
+  /** Why a model call failed when one did, e.g. `timeout` or `http_429`. */
+  failure: string | null;
   runtime_policy: string | null;
 };
 
@@ -110,12 +112,28 @@ function toDecision(event: Record<string, unknown>): SelectionDecision | null {
     candidates,
     session_id: text(event.session_id),
     thread: text(event.thread_id),
+    failure: firstFailure(event.requests),
     runtime_policy: text(event.runtime_policy),
   };
 }
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** The reason the first failed model call gave, when a row records any. */
+function firstFailure(requests: unknown): string | null {
+  if (!Array.isArray(requests)) return null;
+  for (const entry of requests) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    if (row.status !== "ok") {
+      const reason = text(row.reason) ?? "failed";
+      const phase = text(row.phase);
+      return phase ? `${phase} ${reason}` : reason;
+    }
+  }
+  return null;
 }
 
 function finite(value: unknown): number | null {

@@ -12,6 +12,7 @@ export type Decision = {
   candidates: number;
   session_id: string | null;
   thread: string | null;
+  failure: string | null;
   runtime_policy: string | null;
 };
 

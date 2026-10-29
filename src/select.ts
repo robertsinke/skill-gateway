@@ -136,6 +136,14 @@ function record(request: SelectRequest, suggestion: JevSuggestion, candidates: s
       input_tokens_source: reported ? "typesafe_usage" : suggestion.requests.length ? "estimated_utf8_bytes_div_4" : "not_sent",
       latency_ms: Math.max(0, Math.round(suggestion.latency_ms)),
       reason: suggestion.reason,
+      // Why a call failed, beyond "no answer": a timeout, an HTTP error and a
+      // malformed reply all looked identical in the ledger before this.
+      requests: suggestion.requests.map((entry) => ({
+        phase: entry.phase,
+        status: entry.status,
+        reason: entry.reason ?? null,
+        latency_ms: Math.max(0, Math.round(entry.latency_ms)),
+      })),
     });
   } catch {
     // Telemetry is best-effort; selection still returns its answer.

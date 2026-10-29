@@ -124,6 +124,7 @@ class Gateway {
         candidates: typeof row.candidates === "number" ? row.candidates : 0,
         session_id: typeof row.session_id === "string" ? row.session_id : null,
         thread: typeof row.thread === "string" ? row.thread : null,
+        failure: typeof row.failure === "string" ? row.failure : null,
         runtime_policy: typeof row.runtime_policy === "string" ? row.runtime_policy : null,
       };
       return [decision];

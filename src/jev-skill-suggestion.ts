@@ -11,7 +11,12 @@ import {
 
 export const JEV_UPSTREAM_REVISION = "4efb68547887d2a4dd714074bd7ecb4171dc9fee";
 export const JEV_UPSTREAM_POLICY = `jev-skill-suggestion@${JEV_UPSTREAM_REVISION}`;
-export const JEV_UPSTREAM_DEFAULTS = Object.freeze({ shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.3, excerptChars: 700, timeoutMs: 800 });
+// Measured on this machine's library (154 skills, 52 KB request body): the
+// ranking call takes 250–670 ms at rest and passes 800 ms whenever an agent is
+// busy, so the upstream 800 ms budget aborted roughly half of all BB turns and
+// silently injected nothing. Everything else here already allows 2 s (rerank)
+// to 6.5 s (gate) for one model call; the host adapters allow 10 s.
+export const JEV_UPSTREAM_DEFAULTS = Object.freeze({ shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.3, excerptChars: 700, timeoutMs: 3_000 });
 export type FileSkill = Skill & { filePath: string; disableModelInvocation?: boolean };
 export type JevRequest = {
   phase: "ranking" | "rerank"; status: "ok" | "error"; reason?: string;

@@ -86,3 +86,22 @@ test("keeps the host thread so a view can report one conversation", () => {
   assert.equal(report.decisions[0]!.thread, null);
   assert.equal(report.decisions[1]!.thread, "thr_abc");
 });
+
+test("names why a model call failed instead of only 'no answer'", () => {
+  const path = ledger([
+    {
+      event_type: "gate_decision",
+      gate_status: "error",
+      reason: "no answer",
+      requests: [
+        { phase: "ranking", status: "error", reason: "timeout", latency_ms: 805 },
+      ],
+    },
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], requests: [{ phase: "ranking", status: "ok", reason: null, latency_ms: 210 }] },
+    { event_type: "gate_decision", gate_status: "error", reason: "no answer" },
+  ]);
+  const report = readSelectionEvents(path);
+  assert.equal(report.decisions[0]!.failure, null);
+  assert.equal(report.decisions[1]!.failure, null);
+  assert.equal(report.decisions[2]!.failure, "ranking timeout");
+});

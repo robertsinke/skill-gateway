@@ -117,3 +117,29 @@ test("records the thread the host showed, not just its session", async () => {
     delete process.env.SKILL_GATEWAY_EVENTS;
   }
 });
+
+test("records why a model call failed, not just that nothing was injected", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "sg-select-failure-")), "usage-events.jsonl");
+  process.env.SKILL_GATEWAY_EVENTS = path;
+  const timingOut = (async () => {
+    const error = new Error("The operation was aborted due to timeout");
+    error.name = "TimeoutError";
+    throw error;
+  }) as typeof fetch;
+  try {
+    const result = await selectSkill(
+      { prompt: "stabilize the upload test", roster: library(), platform: "bb" },
+      { apiKey: "test-key", fetcher: timingOut },
+    );
+    assert.equal(result.name, null);
+    assert.equal(result.reason, "no answer");
+    const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const requests = rows[0]!.requests as { phase: string; status: string; reason: string }[];
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]!.phase, "ranking");
+    assert.equal(requests[0]!.status, "error");
+    assert.equal(requests[0]!.reason, "timeout");
+  } finally {
+    delete process.env.SKILL_GATEWAY_EVENTS;
+  }
+});
