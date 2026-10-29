@@ -24,6 +24,9 @@
     // dashboard renders one view without its own sidebar.
     const params = new URLSearchParams(location.search);
     embedded = params.get("embedded") === "1";
+    // The host panel names the thread it is showing, so decisions can be
+    // reported per conversation instead of only as one global list.
+    gateway.thread = params.get("thread") ?? "";
     const requested = params.get("view");
     if (requested && views.some((item) => item.view === requested)) gateway.show(requested as View);
     const onKey = (event: KeyboardEvent) => {

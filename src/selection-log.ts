@@ -14,6 +14,7 @@ export type SelectionDecision = {
   latency_ms: number | null;
   candidates: number;
   session_id: string | null;
+  thread: string | null;
   runtime_policy: string | null;
 };
 
@@ -108,6 +109,7 @@ function toDecision(event: Record<string, unknown>): SelectionDecision | null {
     latency_ms: finite(event.latency_ms),
     candidates,
     session_id: text(event.session_id),
+    thread: text(event.thread_id),
     runtime_policy: text(event.runtime_policy),
   };
 }

@@ -101,3 +101,19 @@ test("records one ledger row per selection with the asking host", async () => {
     delete process.env.SKILL_GATEWAY_EVENTS;
   }
 });
+
+test("records the thread the host showed, not just its session", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "sg-select-thread-")), "usage-events.jsonl");
+  process.env.SKILL_GATEWAY_EVENTS = path;
+  try {
+    await selectSkill(
+      { prompt: "stabilize the upload test", roster: library(), platform: "bb", sessionId: "s1", threadId: "thr_abc123" },
+      { apiKey: "test-key", fetcher: fetcherChoosing("flaky-test-fixer") },
+    );
+    const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(rows[0]!.thread_id, "thr_abc123");
+    assert.equal(rows[0]!.session_id, "s1");
+  } finally {
+    delete process.env.SKILL_GATEWAY_EVENTS;
+  }
+});

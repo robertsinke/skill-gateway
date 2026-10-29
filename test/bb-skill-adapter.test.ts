@@ -23,6 +23,23 @@ test("posts one message to the BB plugin and returns its selection", async () =>
   assert.deepEqual(seen!.body, { prompt: "stabilize the upload test", sessionId: "s1", cwd: "/tmp" });
 });
 
+test("names the BB thread so the panel can find this turn again", async () => {
+  let seen: unknown = null;
+  const fetcher = (async (_input: unknown, init?: RequestInit) => {
+    seen = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ ok: true, name: null, context: "", reason: "no answer", latency_ms: 1, candidates: [] }), {
+      status: 200,
+    });
+  }) as typeof fetch;
+
+  await selectViaBb(
+    { prompt: "x", sessionId: "s1", threadId: "thr_abc123" },
+    { serverUrl: "http://bb", token: "t", fetcher },
+  );
+
+  assert.deepEqual(seen, { prompt: "x", sessionId: "s1", threadId: "thr_abc123" });
+});
+
 test("a rejected request is an error, not an empty selection", async () => {
   const fetcher = (async () =>
     new Response(JSON.stringify({ ok: false, error: "select_failed", message: "gateway missing" }), { status: 502 })) as typeof fetch;

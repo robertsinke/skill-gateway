@@ -32,9 +32,13 @@ skill-gateway set manageServer false` hands the job back to you
 ## Select for a prompt by hand
 
 ```bash
-echo '{"prompt":"fix the flaky upload test","sessionId":"manual"}' > /tmp/req.json
+echo '{"prompt":"fix the flaky upload test","sessionId":"manual","threadId":"thr_…"}' > /tmp/req.json
 bb skill-gateway select --json "$(cat /tmp/req.json)"
 ```
+
+`threadId` is optional and only used for the ledger: the panel leads with the
+decisions recorded for the thread it is showing, so an adapter that knows its
+thread passes it through.
 
 Returns `{name, context, reason, inline, latency_ms, candidates}`. `name` is
 `null` when Jev rejects the prompt, no candidate matched, or selection failed;
@@ -47,4 +51,8 @@ Returns `{name, context, reason, inline, latency_ms, candidates}`. `name` is
 - Selection needs the TypeSafe key on the server machine. Without it the
   answer is `credential_unavailable` and no skill is injected.
 - Prompt and candidate excerpts are sent to TypeSafe. Nothing is logged here.
+- Every selection writes one `gate_decision` row to the ledger. The panel's
+  Selection view leads with the thread BB is showing, then all hosts; that view
+  is the only place an injection and its reason are visible on this side, since
+  Pi's statusline and its custom messages never reach BB's timeline.
 - HTTP route `/select` requires the plugin token: `bb plugin token skill-gateway`.

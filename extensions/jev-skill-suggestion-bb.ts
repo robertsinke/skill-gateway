@@ -44,7 +44,7 @@ export function resolveTarget(options: Options = {}): { url: string; token: stri
 
 /** One message in, one skill or none out. Throws when BB cannot answer. */
 export async function selectViaBb(
-  input: { prompt: string; sessionId: string; cwd?: string },
+  input: { prompt: string; sessionId: string; threadId?: string; cwd?: string },
   options: Options = {},
 ): Promise<BbSelection> {
   const { url, token } = resolveTarget(options);
@@ -109,6 +109,7 @@ export default function jevViaBb(pi: ExtensionAPI, options: Options & { enabledB
         {
           prompt: event.prompt,
           sessionId: ctx.sessionManager.getSessionId(),
+          ...(process.env.BB_THREAD_ID ? { threadId: process.env.BB_THREAD_ID } : {}),
           cwd: ctx.cwd,
         },
         options,

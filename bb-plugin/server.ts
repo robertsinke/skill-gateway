@@ -35,6 +35,8 @@ for(var name in map){var value=tokens[map[name]];if(value)root.setProperty("--"+
 const requestSchema = z.object({
   prompt: z.string().min(1).max(MAX_PROMPT_CHARS),
   sessionId: z.string().min(1).max(200),
+  /** The BB thread this turn belongs to, so the panel can show that thread's decisions. */
+  threadId: z.string().min(1).max(200).optional(),
   cwd: z.string().max(4096).optional(),
   root: z.string().max(4096).optional(),
 });
@@ -112,6 +114,7 @@ export default async function plugin(bb: BbPluginApi) {
       prompt: request.prompt,
       platform: "bb",
       sessionId: request.sessionId,
+      ...(request.threadId ? { threadId: request.threadId } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...((request.root ?? libraryRoot) ? { root: request.root ?? libraryRoot } : {}),
       loaded: await loadedFor(request.sessionId),

@@ -24,6 +24,8 @@ export type SelectRequest = {
   platform?: string;
   /** Host session identity, recorded in the gate ledger. */
   sessionId?: string;
+  /** Thread the host showed this turn in, recorded so the dashboard can find it again. */
+  threadId?: string;
   /** Explicit roster; defaults to the library. Paths must be readable by this process. */
   roster?: RosterSkill[];
 };
@@ -117,6 +119,7 @@ function record(request: SelectRequest, suggestion: JevSuggestion, candidates: s
       event_type: "gate_decision",
       platform: request.platform ?? "unknown",
       session_id: request.sessionId ?? null,
+      thread_id: request.threadId ?? null,
       turn_id: null,
       runtime_policy: JEV_UPSTREAM_POLICY,
       prompt_sha256: promptDigest(request.prompt),
@@ -155,6 +158,7 @@ export async function selectFromStdin(
       ...(isStringArray(request.loaded) ? { loaded: request.loaded } : {}),
       ...(typeof request.platform === "string" ? { platform: request.platform } : {}),
       ...(typeof request.sessionId === "string" ? { sessionId: request.sessionId } : {}),
+      ...(typeof request.threadId === "string" ? { threadId: request.threadId } : {}),
       ...(isRoster(request.roster) ? { roster: request.roster } : {}),
     },
     dependencies,

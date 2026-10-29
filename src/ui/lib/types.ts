@@ -11,6 +11,7 @@ export type Decision = {
   latency_ms: number | null;
   candidates: number;
   session_id: string | null;
+  thread: string | null;
   runtime_policy: string | null;
 };
 

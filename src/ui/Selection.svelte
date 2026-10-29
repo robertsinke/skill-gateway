@@ -6,6 +6,21 @@
     gateway.selection.pass + gateway.selection.reject + gateway.selection.error + gateway.selection.no_candidates,
   );
   const share = $derived(total ? Math.round((gateway.selection.pass / total) * 100) : 0);
+  const mine = $derived(gateway.threadDecisions);
+  const latest = $derived(mine[0] ?? null);
+  const summary = $derived.by(() => {
+    if (!gateway.threadDecisions[0]) return "";
+    const row = gateway.threadDecisions[0];
+    const outcome = row.skill
+      ? `${row.skill} was injected`
+      : row.status === "error"
+        ? "the gate got no answer, so nothing was injected"
+        : "no skill was injected";
+    const why = row.reason ? ` — ${row.reason}` : "";
+    const gate = row.probability === null ? "" : ` (p ${probability(row.probability)})`;
+    const took = row.latency_ms === null ? "" : `, ${latency(row.latency_ms)}`;
+    return `Last turn at ${time(row.timestamp)}: ${outcome}${why}${gate}${took}.`;
+  });
 
   function time(iso: string): string {
     if (!iso) return "—";
@@ -24,7 +39,38 @@
 </script>
 
 <section>
-  <h1>Selection</h1>
+  {#if gateway.thread}
+    <h1>This thread</h1>
+    <p class="sub">
+      {#if latest}
+        {summary}
+        {phrase(mine.length, "decision", "decisions")} in this thread so far.
+      {:else}
+        No selection recorded for this thread yet. One row is written per turn, so the next message you send appears here.
+      {/if}
+    </p>
+
+    {#if mine.length}
+      <table class="sheet">
+        <thead>
+          <tr><th>Time</th><th>Outcome</th><th>Skill</th><th>Reason</th><th>p</th><th>Latency</th></tr>
+        </thead>
+        <tbody>
+          {#each mine as row, index (`thread-${row.timestamp}-${index}`)}
+            <tr>
+              <td>{time(row.timestamp)}</td>
+              <td>{row.status}</td>
+              <td class="clip">{row.skill ?? "—"}</td>
+              <td class="clip">{row.reason ?? "—"}</td>
+              <td>{probability(row.probability)}</td>
+              <td>{latency(row.latency_ms)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {/if}
+  {/if}
+  <h1>{gateway.thread ? "Everything" : "Selection"}</h1>
   <p class="sub">
     {#if total}
       {phrase(total, "decision", "decisions")} across {phrase(gateway.selectionSessions, "session", "sessions")}. {share}% injected a skill; the rest declined or failed before injection.{#if gateway.selectionTruncated} Showing the newest {gateway.decisions.length} of {gateway.selectionTotal}.{/if}

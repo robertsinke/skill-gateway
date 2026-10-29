@@ -23,6 +23,8 @@ class Gateway {
   selectionSessions = $state(0);
   selectionTotal = $state(0);
   selectionTruncated = $state(false);
+  /** The thread the host panel is showing, empty when the dashboard runs standalone. */
+  thread = $state("");
   /** One entry per endpoint that could not be read; the shell renders them. */
   problems = $state<Record<string, string>>({});
   selectedName = $state("");
@@ -30,6 +32,12 @@ class Gateway {
   get problem(): string | null {
     const messages = Object.values(this.problems);
     return messages.length ? [...new Set(messages)].join(" · ") : null;
+  }
+
+  /** Decisions recorded for the thread the host is showing, newest first. */
+  get threadDecisions(): Decision[] {
+    if (!this.thread) return [];
+    return this.decisions.filter((row) => row.thread === this.thread);
   }
 
   /** Reads one endpoint, recording why it failed instead of pretending it was empty. */
@@ -115,6 +123,7 @@ class Gateway {
         latency_ms: typeof row.latency_ms === "number" ? row.latency_ms : null,
         candidates: typeof row.candidates === "number" ? row.candidates : 0,
         session_id: typeof row.session_id === "string" ? row.session_id : null,
+        thread: typeof row.thread === "string" ? row.thread : null,
         runtime_policy: typeof row.runtime_policy === "string" ? row.runtime_policy : null,
       };
       return [decision];

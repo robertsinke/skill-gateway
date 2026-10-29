@@ -76,3 +76,13 @@ test("reads a writer's candidate count when names are not stored", () => {
   const path = ledger([{ event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], candidate_count: 148 }]);
   assert.equal(readSelectionEvents(path).decisions[0]!.candidates, 148);
 });
+
+test("keeps the host thread so a view can report one conversation", () => {
+  const path = ledger([
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], thread_id: "thr_abc" },
+    { event_type: "gate_decision", gate_status: "reject", injected_skill_names: [], session_id: "s1" },
+  ]);
+  const report = readSelectionEvents(path);
+  assert.equal(report.decisions[0]!.thread, null);
+  assert.equal(report.decisions[1]!.thread, "thr_abc");
+});
