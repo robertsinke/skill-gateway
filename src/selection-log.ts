@@ -121,6 +121,11 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/** The Jev path called its gate call "ranking" before the two paths shared a vocabulary. */
+function normalizePhase(phase: string): string {
+  return phase === "ranking" ? "gate" : phase;
+}
+
 /** The reason the first failed model call gave, when a row records any. */
 function firstFailure(requests: unknown): string | null {
   if (!Array.isArray(requests)) return null;
@@ -130,7 +135,7 @@ function firstFailure(requests: unknown): string | null {
     if (row.status !== "ok") {
       const reason = text(row.reason) ?? "failed";
       const phase = text(row.phase);
-      return phase ? `${phase} ${reason}` : reason;
+      return phase ? `${normalizePhase(phase)} ${reason}` : reason;
     }
   }
   return null;

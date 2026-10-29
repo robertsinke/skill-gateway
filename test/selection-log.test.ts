@@ -77,6 +77,18 @@ test("reads a writer's candidate count when names are not stored", () => {
   assert.equal(readSelectionEvents(path).decisions[0]!.candidates, 148);
 });
 
+test("reads the Jev path's old 'ranking' phase as the gate call it was", () => {
+  const path = ledger([
+    {
+      event_type: "gate_decision",
+      gate_status: "error",
+      reason: "no answer",
+      requests: [{ phase: "ranking", status: "error", reason: "timeout", latency_ms: 805 }],
+    },
+  ]);
+  assert.equal(readSelectionEvents(path).decisions[0]!.failure, "gate timeout");
+});
+
 test("keeps the host thread so a view can report one conversation", () => {
   const path = ledger([
     { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], thread_id: "thr_abc" },
@@ -94,14 +106,14 @@ test("names why a model call failed instead of only 'no answer'", () => {
       gate_status: "error",
       reason: "no answer",
       requests: [
-        { phase: "ranking", status: "error", reason: "timeout", latency_ms: 805 },
+        { phase: "gate", status: "error", reason: "timeout", latency_ms: 805 },
       ],
     },
-    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], requests: [{ phase: "ranking", status: "ok", reason: null, latency_ms: 210 }] },
+    { event_type: "gate_decision", gate_status: "pass", injected_skill_names: ["a"], requests: [{ phase: "gate", status: "ok", reason: null, latency_ms: 210 }] },
     { event_type: "gate_decision", gate_status: "error", reason: "no answer" },
   ]);
   const report = readSelectionEvents(path);
   assert.equal(report.decisions[0]!.failure, null);
   assert.equal(report.decisions[1]!.failure, null);
-  assert.equal(report.decisions[2]!.failure, "ranking timeout");
+  assert.equal(report.decisions[2]!.failure, "gate timeout");
 });

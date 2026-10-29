@@ -136,7 +136,7 @@ test("records why a model call failed, not just that nothing was injected", asyn
     const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     const requests = rows[0]!.requests as { phase: string; status: string; reason: string }[];
     assert.equal(requests.length, 1);
-    assert.equal(requests[0]!.phase, "ranking");
+    assert.equal(requests[0]!.phase, "gate");
     assert.equal(requests[0]!.status, "error");
     assert.equal(requests[0]!.reason, "timeout");
   } finally {

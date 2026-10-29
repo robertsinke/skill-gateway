@@ -19,7 +19,7 @@ export const JEV_UPSTREAM_POLICY = `jev-skill-suggestion@${JEV_UPSTREAM_REVISION
 export const JEV_UPSTREAM_DEFAULTS = Object.freeze({ shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.3, excerptChars: 700, timeoutMs: 3_000 });
 export type FileSkill = Skill & { filePath: string; disableModelInvocation?: boolean };
 export type JevRequest = {
-  phase: "ranking" | "rerank"; status: "ok" | "error"; reason?: string;
+  phase: "gate" | "rerank"; status: "ok" | "error"; reason?: string;
   latency_ms: number; estimated_input_tokens: number; input_tokens: number | null;
   output_tokens: number | null; cost_usd: number | null;
 };
@@ -94,7 +94,7 @@ export class JevSkillSuggestion {
           audit.input_tokens = tokens(parsed.usage.input_tokens); audit.output_tokens = tokens(parsed.usage.output_tokens);
         }
         if (!validResponse(parsed)) { audit.reason = "invalid_response"; return null; }
-        if (!(phase === "ranking" ? readWide(text) : readRerank(text))) { audit.reason = "invalid_answers"; return null; }
+        if (!(phase === "gate" ? readWide(text) : readRerank(text))) { audit.reason = "invalid_answers"; return null; }
         audit.status = "ok";
         return text;
       } catch (error) {
@@ -106,7 +106,7 @@ export class JevSkillSuggestion {
       }
     };
 
-    const first = await ask("ranking", wideQuestions("typesafe", skills));
+    const first = await ask("gate", wideQuestions("typesafe", skills));
     if (generation !== this.generation) { result.reason = "context_changed"; return finish(); }
     result.wide = first ? readWide(first) : null;
     const barred = new Set<string>();
