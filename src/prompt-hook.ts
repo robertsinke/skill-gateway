@@ -98,6 +98,7 @@ export async function handle(
     ? (Number.parseInt(createHash("sha256").update(session).digest("hex").slice(0, 8), 16) % 2 === 0 ? "control" : "treatment")
     : null;
   let rerankOutcome: RerankResult | undefined;
+  let rerankLatencyMs = 0;
   let gate: GateAudit;
   let requestAttempted = false;
   let decision: GateDecision | undefined;
@@ -127,6 +128,7 @@ export async function handle(
   const gateLatencyMs = Math.max(0, Date.now() - gateStartedAt);
   // Shadow measures without changing injection; experiment randomly assigns stable sessions to treatment/control.
   if ((rerankMode === "shadow" || (rerankMode === "experiment" && experimentArm === "treatment")) && decision?.status === "pass" && gateCandidates.length > 0) {
+    const rerankStartedAt = Date.now();
     let rerank: RerankResult;
     try {
       rerank = await evaluateRerank(promptText, gateCandidates, {
@@ -135,6 +137,7 @@ export async function handle(
     } catch {
       rerank = { status: "error", reason: "rerank_exception", fits: [], selected: [], request_attempted: true, estimated_input_tokens: 0, cost_usd: null, latency_ms: 0 };
     }
+    rerankLatencyMs = Math.max(0, Date.now() - rerankStartedAt);
     rerankOutcome = rerank;
     if (rerankMode === "experiment" && experimentArm === "treatment" && rerank.status === "ok") {
       const selected = new Set(rerank.selected);
@@ -223,6 +226,9 @@ export async function handle(
       cost_rate_usd_per_million_input_tokens: SKILL_GATE_INPUT_PRICE_USD_PER_MILLION_TOKENS,
       cost_rate_source: "https://docs.typesafe.ai/models.md",
       latency_ms: gateLatencyMs,
+      // One entry per model call, so a slow or aborted gate is distinguishable
+      // from a rerank that failed, and from a turn that simply declined.
+      requests: modelAttempts(gate, gateLatencyMs, requestAttempted, rerankOutcome, rerankLatencyMs),
       ...(gate.reason ? { reason: gate.reason } : {}),
     }, env);
   } catch {
@@ -242,6 +248,38 @@ export async function handle(
       additionalContext: text,
     },
   });
+}
+
+/**
+ * The model calls this turn actually made, in order. A row with no entry means
+ * no call was attempted — a bypassed gate or an empty candidate list — which is
+ * why an empty array is not the same as a failure.
+ */
+function modelAttempts(
+  gate: GateAudit,
+  gateLatencyMs: number,
+  requestAttempted: boolean,
+  rerank: RerankResult | undefined,
+  rerankLatencyMs: number,
+): { phase: string; status: string; reason: string | null; latency_ms: number }[] {
+  const attempts: { phase: string; status: string; reason: string | null; latency_ms: number }[] = [];
+  if (requestAttempted) {
+    attempts.push({
+      phase: "gate",
+      status: gate.status === "error" ? "error" : "ok",
+      reason: gate.reason ?? null,
+      latency_ms: gateLatencyMs,
+    });
+  }
+  if (rerank) {
+    attempts.push({
+      phase: "rerank",
+      status: rerank.status === "error" ? "error" : "ok",
+      reason: rerank.reason ?? null,
+      latency_ms: rerankLatencyMs || rerank.latency_ms,
+    });
+  }
+  return attempts;
 }
 
 function emptyJson(): string {

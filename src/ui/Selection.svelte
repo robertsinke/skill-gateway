@@ -1,5 +1,6 @@
 <script lang="ts">
   import { phrase } from "./lib/format";
+  import type { Decision } from "./lib/types";
   import { gateway } from "./state.svelte";
 
   const total = $derived(
@@ -14,9 +15,9 @@
     const outcome = row.skill
       ? `${row.skill} was injected`
       : row.status === "error"
-        ? "the gate got no answer, so nothing was injected"
+        ? "a model call failed, so nothing was injected"
         : "no skill was injected";
-    const why = row.reason ? ` — ${row.reason}${row.failure ? ` (${row.failure})` : ""}` : "";
+    const why = row.reason || row.failure ? ` — ${reasonOf(row)}` : "";
     const gate = row.probability === null ? "" : ` (p ${probability(row.probability)})`;
     const took = row.latency_ms === null ? "" : `, ${latency(row.latency_ms)}`;
     return `Last turn at ${time(row.timestamp)}: ${outcome}${why}${gate}${took}.`;
@@ -35,6 +36,15 @@
 
   function latency(value: number | null): string {
     return value === null ? "—" : `${Math.round(value)} ms`;
+  }
+
+  /** The reason a turn ended as it did, naming the failing call instead of repeating it. */
+  function reasonOf(row: Decision): string {
+    const reason = row.reason ?? "";
+    const failure = row.failure ?? "";
+    if (!failure) return reason || "—";
+    if (!reason) return failure;
+    return failure.includes(reason) ? failure : `${reason} (${failure})`;
   }
 </script>
 
@@ -61,7 +71,7 @@
               <td>{time(row.timestamp)}</td>
               <td>{row.status}</td>
               <td class="clip">{row.skill ?? "—"}</td>
-              <td class="clip">{row.reason ?? "—"}{row.failure ? ` (${row.failure})` : ""}</td>
+              <td class="clip">{reasonOf(row)}</td>
               <td>{probability(row.probability)}</td>
               <td>{latency(row.latency_ms)}</td>
             </tr>
@@ -106,7 +116,7 @@
             <td>{row.platform}</td>
             <td>{row.status}</td>
             <td class="clip">{row.skill ?? "—"}</td>
-            <td class="clip">{row.reason ?? "—"}{row.failure ? ` (${row.failure})` : ""}</td>
+            <td class="clip">{reasonOf(row)}</td>
             <td>{probability(row.probability)}</td>
             <td>{latency(row.latency_ms)}</td>
           </tr>

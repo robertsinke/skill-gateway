@@ -311,4 +311,38 @@ it("injects the shortlist when the gate passes", async () => {
     assert.equal(output.systemMessage, "");
     assert.equal(output.hookSpecificOutput.additionalContext, "");
   });
+
+  it("records a failed gate call with its own phase and latency", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-attempt-"));
+    const eventsFile = join(root, "usage-events.jsonl");
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    await handle(
+      { prompt: "please schedule a meeting", session_id: "s1" },
+      { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsFile, SKILL_GATEWAY_LOG: "-" },
+      async () => ({ status: "error", probability: null, model: "jev-1.13.0", reason: "timeout", request_attempted: true }),
+    );
+    const event = JSON.parse(readFileSync(eventsFile, "utf8"));
+    assert.equal(event.requests.length, 1);
+    assert.equal(event.requests[0].phase, "gate");
+    assert.equal(event.requests[0].status, "error");
+    assert.equal(event.requests[0].reason, "timeout");
+    assert.equal(typeof event.requests[0].latency_ms, "number");
+  });
+
+  it("records the rerank call alongside the gate it followed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "hook-attempt-"));
+    const eventsFile = join(root, "usage-events.jsonl");
+    skill(root, "calendar", "name: calendar\ndescription: schedule a meeting\n");
+    await handle(
+      { prompt: "please schedule a meeting", session_id: "s1" },
+      { ...process.env, SKILL_GATEWAY_ROOT: root, SKILL_GATEWAY_EVENTS: eventsFile, SKILL_GATEWAY_LOG: "-", SKILL_GATEWAY_RERANK_MODE: "shadow" },
+      async () => ({ status: "pass", probability: 0.9, model: "jev-1.13.0", request_attempted: true }),
+      async () => ({ status: "error", reason: "timeout", fits: [], selected: [], request_attempted: true, estimated_input_tokens: 0, cost_usd: null, latency_ms: 2000 }),
+    );
+    const event = readFileSync(eventsFile, "utf8").trim().split("\n").map(JSON.parse).find((row) => row.event_type === "gate_decision");
+    assert.deepEqual(event.requests.map((row: { phase: string; status: string; reason: string | null }) => [row.phase, row.status, row.reason]), [
+      ["gate", "ok", null],
+      ["rerank", "error", "timeout"],
+    ]);
+  });
 });
