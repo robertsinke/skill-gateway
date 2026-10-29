@@ -9,6 +9,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, extname, join, relative, sep } from "node:path";
+import { launchdJobForServer } from "./server-supervision";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
@@ -250,6 +251,11 @@ export default async function plugin(bb: BbPluginApi) {
       }
       if (!existsSync(serverEntry)) {
         bb.log.warn(`gateway server entrypoint missing: ${serverEntry}`);
+        return;
+      }
+      const job = launchdJobForServer(serverEntry);
+      if (job) {
+        bb.log.warn(`gateway server is supervised by launchd job ${job.label} but not answering; not starting a second copy (launchctl kickstart -k gui/$(id -u)/${job.label})`);
         return;
       }
       const child = spawn(nodeBinary, [serverEntry], {

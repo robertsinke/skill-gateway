@@ -72,3 +72,9 @@ server: it probes `gatewayServerUrl`, adopts a server that already answers,
 otherwise spawns `serverEntry`, waits for `/api/settings`, and terminates the
 child it started when the service is aborted (reload, disable, shutdown).
 `manageServer: false` leaves the server entirely to the user.
+
+`bb-plugin/server-supervision.ts` answers whether a LaunchAgent already runs that
+entrypoint; when one does, the plugin treats the server as managed elsewhere and
+never starts a second copy. Only a plist whose program arguments name the
+configured `serve.js` counts, so the gateway's MCP LaunchAgent does not disable
+management.

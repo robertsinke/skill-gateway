@@ -24,8 +24,10 @@ BB server machine; selection reads skill files there.
 
 The plugin runs `serve.js` itself as a background service: it adopts a server
 already listening on `gatewayServerUrl`, starts one when the port is idle, and
-stops it on unload. `bb plugin config skill-gateway set manageServer false` hands
-that job back to you (`node ~/.local/share/skill-gateway/dist/serve.js`).
+stops it on unload. If a LaunchAgent already runs that `serve.js`, the plugin
+leaves the server to launchd and never starts a second copy. `bb plugin config
+skill-gateway set manageServer false` hands the job back to you
+(`node ~/.local/share/skill-gateway/dist/serve.js`).
 
 ## Select for a prompt by hand
 
