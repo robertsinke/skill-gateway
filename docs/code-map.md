@@ -94,7 +94,15 @@ which is not a failure. `src/prompt-hook.ts` writes one entry per call it made
 (gate always when attempted, rerank when shadow or experiment mode ran it);
 `src/select.ts` writes the Jev ranking and rerank calls. The reader turns the
 first failed entry into `failure` (`gate timeout`), which the Selection view
-shows beside the decision's reason. Tests in `test/prompt-hook.test.ts` and
+shows beside the decision's reason.
+
+A `gate_decision` row is the only source of the gate evaluations, and a label
+only exists for a skill the host injected, so `src/skill-rerank-evaluation.ts`
+draws its cases from labelled *passing* turns. Its report says so: live
+exclusions split `gate_declined` from `gate_failed`, and `failed_gate_turns`
+counts failed gates across every turn in the dataset — a coverage figure, not a
+metric. Adding to either list must not change case counts or the existing
+metrics. Tests in `test/prompt-hook.test.ts` and
 `test/select.test.ts` assert both writers stay inside `MODEL_PHASES`.
 
 The plugin's `gateway-server` background service owns the dashboard's data

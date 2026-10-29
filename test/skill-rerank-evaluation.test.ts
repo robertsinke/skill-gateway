@@ -135,7 +135,13 @@ describe("rerank evidence pipeline", () => {
     assert.equal(prepareRerankEvaluation(badShadow.run, badShadow.output, catalog).live.exclusions.arm_mismatch, 1);
     const rejectedGate = { ...s, gate: { ...s.gate, gate_status: "reject" } };
     const badGate = fixture([rejectedGate], [live]);
-    assert.equal(prepareRerankEvaluation(badGate.run, badGate.output, catalog).live.exclusions.gate_not_passed, 1);
+    assert.equal(prepareRerankEvaluation(badGate.run, badGate.output, catalog).live.exclusions.gate_declined, 1);
+    const failedGate = { ...s, gate: { ...s.gate, gate_status: "error" } };
+    const failedFixture = fixture([failedGate], [live]);
+    const failedGateBatch = prepareRerankEvaluation(failedFixture.run, failedFixture.output, catalog);
+    assert.equal(failedGateBatch.live.exclusions.gate_failed, 1);
+    assert.equal(failedGateBatch.live.exclusions.gate_declined, undefined);
+    assert.equal(failedGateBatch.live.failed_gate_turns, 1);
     const mixed = fixture([s], [{ ...live, experiment_arm: "control" }]);
     assert.equal(prepareRerankEvaluation(mixed.run, mixed.output, catalog).live.exclusions.arm_mismatch, 1);
     const wrong = fixture([s], [{ ...live, prompt_sha256: "wrong" }]);

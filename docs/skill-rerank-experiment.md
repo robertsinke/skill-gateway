@@ -42,6 +42,8 @@ All output directories must be fresh and outside the repo, with an existing pare
 
 Reports compare common scored cases, expose failed/pending requests, and separately project the runtime's keep-all fallback on completed errors. Rank metrics exclude missing rank labels with counts. The historical field `current_reranker_0_5` means the fixed 0.5 cutoff of the report's named judgment, not the installed trial cutoff. Skill-specific diagnostics stay in a separate private file, not default stdout.
 
+**What the case count is and is not.** A label exists only for a skill the host actually injected: the feedback UI asks about suggestions the user saw. A turn where the gate declined, failed, or found no candidates therefore contributes no label and no case, which is why the prepared case count is a sample of *labelled passing turns*, not of all turns. Failed gates are reported separately as coverage (`failed_gate_turns`), and the live exclusions distinguish a gate that declined (`gate_declined`) from a gate that never answered (`gate_failed`), so a run that silently lost turns to timeouts cannot be read as a run that found nothing to inject.
+
 Live records now carry `rerank_policy`, `rerank_judgment` and `rerank_threshold` in both treatment results and control gate rows. The evaluator reports recorded policy groups separately, rejects contradictory arms/hashes/candidate lists, and never reclassifies historical selections using today's threshold. Preserve the policy boundary when reviewing fresh feedback; skill loads remain a behavior proxy, not relevance labels or task success.
 
 ## Current Pi behavior

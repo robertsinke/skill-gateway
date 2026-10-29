@@ -53,6 +53,13 @@ function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
   for (const event of snapshot.events.filter((row) => row.event_type === "gate_decision")) {
     const key = usageTurnKey(event); if (key) gateByTurn.set(key, [...(gateByTurn.get(key) ?? []), event]);
   }
+  // Coverage, not a metric: turns whose gate call failed, counted over every dataset turn
+  // rather than only those with rerank evidence, because a failed gate never produces any.
+  let failedGateTurns = 0;
+  for (const turn of snapshot.analysis.dataset.rows) {
+    const gates = gateByTurn.get(usageTurnKey(turn) ?? "") ?? [];
+    if (gates.length === 1 && gates[0]!.gate_status === "error") failedGateTurns += 1;
+  }
   let unlinked = 0;
   for (const event of events) { const key = usageTurnKey(event); if (!key) unlinked++; else byTurn.set(key, [...(byTurn.get(key) ?? []), event]); }
   const cached: ScoredRerankCase[] = [];
@@ -70,7 +77,12 @@ function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
     if (matches.length !== 1) { exclusions.push("multiple_reranks"); continue; }
     const event = matches[0]!;
     const gates = gateByTurn.get(key);
-    if (gates?.length !== 1 || gates[0]!.gate_status !== "pass") { exclusions.push("gate_not_passed"); continue; }
+    if (gates?.length !== 1 || gates[0]!.gate_status !== "pass") {
+      // A gate that declined and a gate that never answered are different events: the
+      // first is a decision the rerank never got to see, the second is missing evidence.
+      exclusions.push(gates?.length === 1 ? (gates[0]!.gate_status === "error" ? "gate_failed" : "gate_declined") : "gate_not_passed");
+      continue;
+    }
     const provenance = [event, gates[0]!];
     const legacy = provenance.every((row) => row.rerank_policy == null && row.rerank_judgment == null && row.rerank_threshold == null);
     const current = provenance.every((row) => row.rerank_policy === CONSERVATIVE_RERANK_TRIAL.id
@@ -106,7 +118,7 @@ function liveEvidence(snapshot: ReturnType<typeof loadSkillRuntimeSnapshot>) {
   }
   return { events: events.length, exact_linked_events: linked, unlinked_identity_events: unlinked,
     events_without_dataset_turn: events.length - linked - unlinked, arm_gate_counts: counts(arms),
-    exclusions: counts(exclusions), labeled_turns: cached.length,
+    exclusions: counts(exclusions), labeled_turns: cached.length, failed_gate_turns: failedGateTurns,
     policy_event_counts: counts(events.map(policy)),
     cached_quality: selectionMetrics(cached, (row) => row.fits.filter((fit) => fit.probability >= 0.5).map((fit) => fit.name)),
     cached_quality_by_policy: Object.fromEntries([...cachedByPolicy].map(([version, rows]) => [version,
@@ -329,7 +341,7 @@ export function reportRerankEvaluation(path: string, outputPath: string) {
     const { report, privateSkillDiagnostics } = analyzeRerankScores(scored);
     latencies.sort((a, b) => a - b);
     const full = { schema_version: 1, batch_sha256: digest, source_manifest_sha256: batch.source_manifest_sha256, judgment: batch.judgment ?? "current-v1",
-      coverage: { prepared_turns: batch.cases.length, scored_turns: scored.length, errors, pending, preparation_exclusions: batch.exclusions,
+      coverage: { prepared_turns: batch.cases.length, scored_turns: scored.length, errors, pending, preparation_exclusions: batch.exclusions, failed_gate_turns: batch.live.failed_gate_turns,
         prepared_keep_all: selectionMetrics(batch.cases, (row) => row.candidates) },
       live: batch.live, analysis: report,
       completed_policy_with_error_fallback: selectionMetrics([...scored, ...failed], (row) => {
