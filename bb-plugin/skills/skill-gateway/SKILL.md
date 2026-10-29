@@ -20,6 +20,13 @@ bb skill-gateway status --json
 Reports the select entrypoint and library root. Both paths must exist on the
 BB server machine; selection reads skill files there.
 
+## The dashboard's data server
+
+The plugin runs `serve.js` itself as a background service: it adopts a server
+already listening on `gatewayServerUrl`, starts one when the port is idle, and
+stops it on unload. `bb plugin config skill-gateway set manageServer false` hands
+that job back to you (`node ~/.local/share/skill-gateway/dist/serve.js`).
+
 ## Select for a prompt by hand
 
 ```bash

@@ -5,16 +5,18 @@
 // Skill Gateway entrypoint, which searches the library locally and asks Jev for
 // one skill or none, and returns only that skill's instructions. The adapter
 // injects them; nothing about the library reaches the model otherwise.
-import { execFile } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, join, relative, sep } from "node:path";
+import { dirname, extname, join, relative, sep } from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
 const MAX_PROMPT_CHARS = 32_000;
 const MAX_LOADED = 64;
 const SELECT_TIMEOUT_MS = 10_000;
+const SERVER_START_TIMEOUT_MS = 15_000;
+const SERVER_STOP_TIMEOUT_MS = 5_000;
 
 /**
  * Runs inside the dashboard frame. The host posts its theme tokens; this maps
@@ -71,6 +73,18 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Gateway server URL",
       description: "Where the dashboard's /api calls are relayed.",
       default: "http://127.0.0.1:8741",
+    },
+    manageServer: {
+      type: "boolean",
+      label: "Run the gateway server",
+      description: "Start the dashboard's data server when it is not already listening, and stop it on unload.",
+      default: true,
+    },
+    serverEntry: {
+      type: "string",
+      label: "Gateway server entrypoint",
+      description: "serve.js from the Skill Gateway build. Must exist on the BB server machine.",
+      default: join(homedir(), ".local", "share", "skill-gateway", "dist", "serve.js"),
     },
   });
 
@@ -221,6 +235,92 @@ export default async function plugin(bb: BbPluginApi) {
       },
       { auth: "local" },
     );
+  }
+
+  // The dashboard's data server: adopt one already listening (a developer may
+  // run it by hand), otherwise start it and stop it again on unload.
+  bb.background.service("gateway-server", {
+    async start(signal) {
+      const { manageServer, serverEntry, gatewayServerUrl, nodeBinary } = await settings.get();
+      if (manageServer === false) return;
+      const base = gatewayServerUrl.replace(/\/+$/, "");
+      if (await reachable(base, signal)) {
+        bb.log.info(`gateway server already listening at ${base}; leaving it alone`);
+        return;
+      }
+      if (!existsSync(serverEntry)) {
+        bb.log.warn(`gateway server entrypoint missing: ${serverEntry}`);
+        return;
+      }
+      const child = spawn(nodeBinary, [serverEntry], {
+        cwd: dirname(serverEntry),
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+      });
+      child.stdout?.on("data", (chunk: Buffer) => bb.log.info(`gateway: ${chunk.toString().trim()}`));
+      child.stderr?.on("data", (chunk: Buffer) => bb.log.warn(`gateway: ${chunk.toString().trim()}`));
+      const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+
+      const ready = await waitUntilReachable(base, signal, child, exited);
+      if (!ready) {
+        bb.log.warn(`gateway server did not answer at ${base}`);
+        await stop(child, exited);
+        return;
+      }
+      bb.log.info(`started gateway server at ${base} (pid ${child.pid ?? "?"})`);
+
+      await new Promise<void>((resolve) => {
+        const finish = () => resolve();
+        signal.addEventListener("abort", finish, { once: true });
+        void exited.then(finish);
+      });
+      await stop(child, exited);
+    },
+  });
+
+  async function reachable(base: string, signal?: AbortSignal): Promise<boolean> {
+    try {
+      const response = await fetch(`${base}/api/settings`, { signal: AbortSignal.any([AbortSignal.timeout(1_500), ...(signal ? [signal] : [])]) });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitUntilReachable(
+    base: string,
+    signal: AbortSignal,
+    child: ChildProcess,
+    exited: Promise<void>,
+  ): Promise<boolean> {
+    const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (signal.aborted || child.exitCode !== null) return false;
+      if (await reachable(base, signal)) return true;
+      await Promise.race([sleep(250, signal), exited]);
+    }
+    return false;
+  }
+
+  async function stop(child: ChildProcess, exited: Promise<void>): Promise<void> {
+    if (child.exitCode !== null) return;
+    child.kill("SIGTERM");
+    const escalated = await Promise.race([exited.then(() => true), sleep(SERVER_STOP_TIMEOUT_MS).then(() => false)]);
+    if (!escalated) child.kill("SIGKILL");
+  }
+
+  function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+    });
   }
 
   bb.cli.register({

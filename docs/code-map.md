@@ -66,3 +66,9 @@ and latency; `record: false` disables it for tests and embedding hosts.
 view, newest first, with status counts; `serve.ts` exposes it at
 `/api/selection`. The dashboard's Analytics view keeps the older prompt-hook
 search log, which still fills when a host does not use the gateway.
+
+The plugin's `gateway-server` background service owns the dashboard's data
+server: it probes `gatewayServerUrl`, adopts a server that already answers,
+otherwise spawns `serverEntry`, waits for `/api/settings`, and terminates the
+child it started when the service is aborted (reload, disable, shutdown).
+`manageServer: false` leaves the server entirely to the user.

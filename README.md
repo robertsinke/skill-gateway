@@ -63,7 +63,7 @@ cd bb-plugin && bb plugin install . --yes      # then: bb plugin token skill-gat
 pi --jev-via-bb                                # default; one selector runs
 ```
 
-The plugin also gives BB a **Skill Gateway** sidebar destination (rail icon `Search`). Its panel shows the existing Svelte dashboard, served same-origin from `/api/v1/plugins/skill-gateway/http/ui/`, and its `/api` calls relay through the plugin so the browser never crosses origins. The panel reads live data only while the gateway server runs (`node dist/serve.js`, default port 8741); otherwise it shows the relay error.
+The plugin also gives BB a **Skill Gateway** sidebar destination (rail icon `Target`). Its panel shows the existing Svelte dashboard, served same-origin from `/api/v1/plugins/skill-gateway/http/ui/`, and its `/api` calls relay through the plugin so the browser never crosses origins. The plugin starts the dashboard's data server itself (`dist/serve.js`, default port 8741) as a background service: it adopts one already listening, starts one when the port is idle, and stops it again on unload. Set `manageServer` to false to run the server yourself.
 
 ### Cursor models keep their own roster
 
