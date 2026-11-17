@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { sessionId } from "./query-log.ts";
 import { relevanceText } from "./relevance-text.ts";
 import { selectSkill, type SelectResult } from "./select.ts";
 
@@ -31,6 +32,19 @@ function promptOf(payload: unknown): string {
   return typeof prompt === "string" ? prompt : "";
 }
 
+/**
+ * Stand down only when this turn's session is the one BB already owns.
+ * The id is `session_id` or `sessionId`, the same lookup the prompt hook uses.
+ * If both keys are absent, the id is empty and this hook stays active:
+ * a child can inherit SKILL_GATEWAY_BB_SESSION without being that session.
+ */
+function ownedByBb(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const id = sessionId(payload as Record<string, unknown>);
+  const owned = process.env.SKILL_GATEWAY_BB_SESSION?.trim() ?? "";
+  return id !== "" && owned !== "" && id === owned;
+}
+
 export async function handle(
   payload: unknown,
   select: (prompt: string) => Promise<Pick<SelectResult, "name" | "reason">> = (prompt) =>
@@ -38,6 +52,7 @@ export async function handle(
 ): Promise<string> {
   const prompt = promptOf(payload);
   if (!prompt.trim()) return hookOutput("");
+  if (ownedByBb(payload)) return hookOutput("");
   try {
     const result = await select(prompt);
     return hookOutput(suggestionText(result.name, result.reason));

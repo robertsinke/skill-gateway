@@ -38,6 +38,62 @@ test("the hook prints that line as additional context", async () => {
   assert.match(parsed.hookSpecificOutput.additionalContext, /tdd/);
 });
 
+function withBbSession(value: string | undefined, run: () => Promise<void>): Promise<void> {
+  const previous = process.env.SKILL_GATEWAY_BB_SESSION;
+  if (value === undefined) delete process.env.SKILL_GATEWAY_BB_SESSION;
+  else process.env.SKILL_GATEWAY_BB_SESSION = value;
+  return run().finally(() => {
+    if (previous === undefined) delete process.env.SKILL_GATEWAY_BB_SESSION;
+    else process.env.SKILL_GATEWAY_BB_SESSION = previous;
+  });
+}
+
+test("the hook stands down when the payload session is the BB-owned session", async () => {
+  await withBbSession("sess-1", async () => {
+    let called = false;
+    const output = await handle({ prompt: "write a failing test first", session_id: "sess-1" }, async () => {
+      called = true;
+      throw new Error("must not run");
+    });
+    assert.equal(called, false);
+    assert.equal(JSON.parse(output).hookSpecificOutput.additionalContext, "");
+  });
+});
+
+test("a different session still gets the name tag", async () => {
+  await withBbSession("sess-1", async () => {
+    let called = false;
+    const output = await handle({ prompt: "write a failing test first", session_id: "sess-2" }, async () => {
+      called = true;
+      return { name: "tdd", reason: "rerank of 1, fits 0.90" };
+    });
+    assert.equal(called, true);
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /Relevant to the current request: tdd\./);
+  });
+});
+
+test("a payload with no session id still calls the selector", async () => {
+  await withBbSession("sess-1", async () => {
+    let called = false;
+    const output = await handle({ prompt: "write a failing test first" }, async () => {
+      called = true;
+      return { name: "tdd", reason: "rerank of 1, fits 0.90" };
+    });
+    assert.equal(called, true);
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /tdd/);
+  });
+});
+
+test("an unset BB session still wraps the tag", async () => {
+  await withBbSession(undefined, async () => {
+    const output = await handle({ prompt: "write a failing test first", session_id: "sess-1" }, async () => ({
+      name: "tdd",
+      reason: "rerank of 1, fits 0.90",
+    }));
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /Relevant to the current request: tdd\./);
+  });
+});
+
 test("an empty prompt does not call the selector", async () => {
   let called = false;
   const output = await handle({ prompt: "  " }, async () => {
