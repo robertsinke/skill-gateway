@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { JevSkillSuggestion, JEV_UPSTREAM_DEFAULTS, type FileSkill } from "../src/jev-skill-suggestion.ts";
 import { DEFAULT_MODEL, decide, readWide, readRerank, requestBody, wideQuestions, rerankQuestions, detailOf, shortlistOf } from "../src/vendor/jev-skill-suggestion/policy.ts";
+import { SKILL_MENTION_MARKER } from "../bb-plugin/skill-mention.ts";
 import register from "../extensions/jev-skill-suggestion.ts";
 import { handle } from "../src/prompt-hook.ts";
 
@@ -191,6 +192,30 @@ describe("original Jev policy in Pi", () => {
 });
 
 describe("Pi integration", () => {
+  it("a skill mention skips the chooser and leaves the roster", async () => {
+    const f = fixture(), net = network();
+    const previous = process.env.SKILL_GATEWAY_PI_JEV_SESSION;
+    const handlers = new Map<string, (...args: any[]) => any>();
+    const statuses: string[] = [];
+    const pi = { registerFlag() {}, getFlag: () => true, on: (name: string, handler: (...args: any[]) => any) => handlers.set(name, handler) };
+    const ctx = { cwd: f.root, sessionManager: { getSessionId: () => "native-main" }, ui: { notify() {}, setStatus: (_key: string, value: string) => statuses.push(value) } };
+    const skills = [{ name: "native-skill", description: "native procedure", filePath: join(f.root, "missing.md") }];
+    try {
+      register(pi as any, { apiKey: "fixture", fetcher: net.fetcher });
+      handlers.get("session_start")!({}, ctx);
+      const event = { messageType: "user", prompt: `Make a plan\n\n${SKILL_MENTION_MARKER}\nkw:plan`, systemPromptOptions: { skills, sections: { keep: "KEEP" } } };
+      const output = await handlers.get("before_agent_start")!(event, ctx);
+      assert.equal(output, undefined);
+      assert.deepEqual(event.systemPromptOptions.skills, skills);
+      assert.equal(net.bodies.length, 0);
+      assert.deepEqual(statuses, ["Jev original: one skill or none"]);
+    } finally {
+      if (previous === undefined) delete process.env.SKILL_GATEWAY_PI_JEV_SESSION;
+      else process.env.SKILL_GATEWAY_PI_JEV_SESSION = previous;
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
   it("lets an installed loader select the trial as the default without requiring a CLI flag", () => {
     const defaults: boolean[] = [];
     const pi = { registerFlag(_name: string, options: { default: boolean }) { defaults.push(options.default); }, on() {} };

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { explicitSkillPrompt } from "../bb-plugin/skill-mention.ts";
 import { sessionId } from "./query-log.ts";
 import { relevanceText } from "./relevance-text.ts";
 import { selectSkill, type SelectResult } from "./select.ts";
@@ -52,6 +53,7 @@ export async function handle(
 ): Promise<string> {
   const prompt = promptOf(payload);
   if (!prompt.trim()) return hookOutput("");
+  if (explicitSkillPrompt(prompt)) return hookOutput("");
   if (ownedByBb(payload)) return hookOutput("");
   try {
     const result = await select(prompt);

@@ -15,8 +15,12 @@ const SILENT_REASONS = new Set([
   "disable-model-invocation",
 ]);
 
+function xmlText(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
 export function relevanceText(name: string | null, reason: string): string {
   if (SILENT_REASONS.has(reason) || reason.startsWith("rerank gave no answer")) return "";
-  const skill: Skill | null = name ? { name, description: "" } : null;
+  const skill: Skill | null = name ? { name: xmlText(name), description: "" } : null;
   return suggestionBlock(skill, false) ?? "";
 }
