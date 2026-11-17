@@ -1,15 +1,15 @@
 ---
 name: skill-gateway
-description: The skill library is selected per message by Skill Gateway. Use this when you need to search the library, read a skill that was not injected, or check why no skill was selected.
+description: The skill library is selected per message by Skill Gateway. Use this when you need to search the library, read a skill, or check why no skill was suggested.
 ---
 
 # Skill Gateway (BB plugin)
 
-BB owns skill selection. For each user message a host adapter suppresses the
-provider's own skill roster and asks this plugin for one skill or none: it
-searches the local library, asks Jev, and injects only that skill.
+The host skill roster stays visible. For each user message, BB may add one
+relevance tag. The tag names one skill, or says that no skill in the roster
+appears relevant. You can ignore the tag.
 
-You therefore see no skill catalog. That is intentional, not a fault.
+Use this skill to search the library or to inspect a selection decision.
 
 ## Inspect the plugin
 
@@ -42,24 +42,24 @@ thread passes it through.
 
 Returns `{name, context, reason, inline, latency_ms, candidates}`. `name` is
 `null` when Jev rejects the prompt, no candidate matched, or selection failed;
-`reason` says which. `context` is the text a host adapter injects.
+`reason` says which. `context` is the ignorable relevance tag, or empty when
+lookup fails. `inline` is false.
 
 ## Limits
 
-- One selection per user message. Skills already injected in the same session
-  are re-referenced, not inlined again.
+- One suggestion per user message.
 - Selection needs the TypeSafe key on the server machine. Without it the
-  answer is `credential_unavailable` and no skill is injected.
+  answer is `credential_unavailable` and no tag is added.
 - Prompt and candidate excerpts are sent to TypeSafe. Nothing is logged here.
 - Every selection writes one `gate_decision` row to the ledger. The panel's
   Selection view leads with the thread BB is showing, then all hosts; that view
-  is the only place an injection and its reason are visible on this side, since
+  is the only place a suggestion and its reason are visible on this side, since
   Pi's statusline and its custom messages never reach BB's timeline.
 - HTTP route `/select` requires the plugin token: `bb plugin token skill-gateway`.
 
 ## Surfaces
 
-- `experimental_appOverlay` `injection-chip`: a chip on the composer's context-ring row stating the newest decision for the open thread (`Injected ce-work 12:41` / `No skill 12:38`), and the last four turns on hover. It positions itself from the measured `[aria-label^="Context window"]` box (falling back to the old corner when a thread has no composer), reads `GET /api/injection?thread=<id>&limit=4` every 2.5 s, and polls only while a thread route is open.
+- `experimental_appOverlay` `injection-chip`: a chip on the composer's context-ring row stating the newest decision for the open thread (`ce-work 12:41` / `No skill 12:38`), and the last four turns on hover. It positions itself from the measured `[aria-label^="Context window"]` box (falling back to the old corner when a thread has no composer), reads `GET /api/injection?thread=<id>&limit=4` every 2.5 s, and polls only while a thread route is open.
 - `navPanel` `dashboard` + fixed tabs: the full Selection history, led by *This thread*.
 
 Both resolve the thread through `useThreadId()` in `thread.ts`, which reads the route's `threadId` and otherwise falls back to the last thread the overlay saw — a plugin panel has its own route, so route context alone loses the thread as soon as the panel opens.

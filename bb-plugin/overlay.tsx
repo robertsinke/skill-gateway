@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { rememberThreadId, useThreadId } from "./thread.ts";
 
 /**
- * The injected skill, stated where the conversation is. BB has no message
+ * The suggested skill, stated where the conversation is. BB has no message
  * timeline slot, so the plugin states the thread's newest decision as a chip on
  * the composer's context-ring row, with the last few turns on hover; the
  * dashboard's Selection tab keeps the full history.
@@ -105,18 +105,18 @@ const skill: CSSProperties = {
 };
 const note: CSSProperties = { color: "var(--muted-foreground, #6b7280)", whiteSpace: "nowrap" };
 
-const dot = (injected: boolean): CSSProperties => ({
+const dot = (suggested: boolean): CSSProperties => ({
   width: "6px",
   height: "6px",
   borderRadius: "999px",
   flex: "0 0 auto",
-  background: injected ? "var(--accent, #2f7d5f)" : "var(--subtle-foreground, #9aa0a6)",
+  background: suggested ? "var(--accent, #2f7d5f)" : "var(--subtle-foreground, #9aa0a6)",
 });
 
-const injected = (decision: Decision) => decision.status === "pass" && Boolean(decision.skill);
+const suggested = (decision: Decision) => decision.status === "pass" && Boolean(decision.skill);
 
 const outcome = (decision: Decision) =>
-  injected(decision)
+  suggested(decision)
     ? `${decision.skill}`
     : decision.failure
       ? "failed"
@@ -125,8 +125,8 @@ const outcome = (decision: Decision) =>
 const at = (decision: Decision) => decision.timestamp?.slice(11, 16) ?? "";
 
 const detail = (decision: Decision) =>
-  injected(decision)
-    ? `Injected at ${at(decision)}${decision.latency_ms === null ? "" : ` · ${decision.latency_ms} ms`}`
+  suggested(decision)
+    ? `Suggested at ${at(decision)}${decision.latency_ms === null ? "" : ` · ${decision.latency_ms} ms`}`
     : decision.failure
       ? `The gate call failed (${decision.failure}), so nothing was injected`
       : `Nothing injected: ${decision.status.replace(/_/g, " ")}${decision.reason ? ` · ${decision.reason}` : ""}`;
@@ -184,17 +184,16 @@ export function InjectionChip() {
             <div key={`${decision.timestamp}-${index}`} style={rowStyle} title={detail(decision)}>
               <span style={when}>{at(decision)}</span>
               <span style={skill}>{outcome(decision)}</span>
-              <span style={note}>{injected(decision) ? (decision.latency_ms === null ? "" : `${decision.latency_ms} ms`) : "—"}</span>
+              <span style={note}>{suggested(decision) ? (decision.latency_ms === null ? "" : `${decision.latency_ms} ms`) : "—"}</span>
             </div>
           ))}
         </div>
       ) : null}
       <div style={chip} title={detail(latest)}>
-        <span style={dot(injected(latest))} aria-hidden="true" />
-        <span role="status" style={note}>
-          {injected(latest) ? "Injected" : "No skill"}
+        <span style={dot(suggested(latest))} aria-hidden="true" />
+        <span role="status" style={suggested(latest) ? skill : note}>
+          {suggested(latest) ? latest.skill : "No skill"}
         </span>
-        {injected(latest) ? <span style={skill}>{latest.skill}</span> : null}
         <span style={when}>{at(latest)}</span>
       </div>
     </div>

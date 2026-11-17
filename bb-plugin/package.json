@@ -9,7 +9,7 @@
   },
   "bb": {
     "name": "Skill Gateway",
-    "description": "Owns per-message skill selection: gateway discovery plus Jev, so hosts advertise no skill roster.",
+    "description": "Owns per-message skill selection: gateway discovery plus Jev. Hosts keep their skill roster and receive one ignorable tag.",
     "branding": {
       "icon": "Target"
     },

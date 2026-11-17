@@ -49,13 +49,13 @@ Set `SKILL_GATEWAY_ROOT` to this checkout before starting the MCP server or usin
 
 The prompt hook searches the local library first, then sends the current user prompt and up to five candidate names/descriptions (not local paths or full history) to TypeSafe Jev `jev-1.13.0`. It injects the shortlist only when the Noul probability is at least `0.5`; no search hits or a gate error/timeout means no injection. The API key is read from the local secret store. Calls are billed and send prompt text to TypeSafe. The gate times out after 6.5 seconds to stay within the configured 10-second host-hook deadline. Set `SKILL_GATEWAY_GATE_MODE=off` to bypass the gate and restore unfiltered shortlist injection as a rollback.
 
-Pi now uses the [original Jev skill-suggestion trial](docs/jev-skill-suggestion-pi-trial.md) through a personal default-on loader. It ranks the whole roster and attaches one skill or none; its active session bypasses the legacy prompt hook below.
+Pi now uses the [original Jev skill-suggestion trial](docs/jev-skill-suggestion-pi-trial.md) through a personal default-on loader. It ranks the whole roster and adds one ignorable relevance tag, or none; its active session bypasses the legacy prompt hook below.
 
 ## BB-owned selection
 
-Selection can live in BB instead of the harness: the [BB plugin](bb-plugin/) owns the decision, and a host adapter only suppresses its provider's skill roster and injects the answer. Today the adapter is Pi (`--jev-via-bb`), which covers Codex models and Cursor ACP because both run through Pi.
+Selection can live in BB instead of the harness: the [BB plugin](bb-plugin/) owns the decision, and a host adapter keeps its provider's skill roster and passes on one ignorable tag. Today the adapter is Pi (`--jev-via-bb`), which covers Codex models and Cursor ACP because both run through Pi.
 
-The flow is one request per user message: Pi posts the prompt to `POST /api/v1/plugins/skill-gateway/http/select`, the plugin runs `dist/select.js` on the BB server, and the gateway searches its library and asks Jev for one skill or none. The plugin keeps the per-session loaded set in BB storage, so a repeated skill is referenced rather than inlined twice. The adapter clears Pi's native skill roster before the request reaches the model, so a failure means no skill rather than a leaked catalog.
+The flow is one request per user message: Pi posts the prompt to `POST /api/v1/plugins/skill-gateway/http/select`, the plugin runs `dist/select.js` on the BB server, and the gateway searches the manager library and asks Jev for one skill or none. The adapter leaves Pi's native skill roster in place. A failed lookup adds no tag.
 
 ```sh
 npm run build:ui:bb                              # dashboard built for the plugin route
@@ -65,18 +65,18 @@ pi --jev-via-bb                                # default; one selector runs
 
 The plugin also gives BB a **Skill Gateway** sidebar destination (rail icon `Target`). Its panel shows the existing Svelte dashboard, served same-origin from `/api/v1/plugins/skill-gateway/http/ui/`, and its `/api` calls relay through the plugin so the browser never crosses origins. The plugin starts the dashboard's data server itself (`dist/serve.js`, default port 8741) as a background service: it adopts one already listening, starts one when the port is idle, and stops it again on unload. Set `manageServer` to false to run the server yourself.
 
-### Seeing what was injected
+### Seeing what was suggested
 
 Two surfaces, both reading the same decision ledger:
 
-- **In the thread**: a small chip on the composer's context-ring row states the newest decision for the open thread — `Injected ce-work 12:41`, or `No skill 12:38`. Hovering it lists the last four turns with their outcome and latency. It is measured against the host's context ring at runtime, because an overlay has no row of its own.
+- **In the thread**: a small chip on the composer's context-ring row states the newest decision for the open thread — `ce-work 12:41`, or `No skill 12:38`. Hovering it lists the last four turns with their outcome and latency. It is measured against the host's context ring at runtime, because an overlay has no row of its own.
 - **In the panel**: Skill Gateway → Selection leads with *This thread* — every decision for the thread you last had open, with outcome, skill, reason, probability and latency — followed by *Everything* across threads.
 
 The chip is an app overlay (`experimental_appOverlay`): BB has no message-timeline slot, so the transcript itself cannot carry the note. Only the latest decision appears there; the panel holds the history.
 
 ### Cursor models keep their own roster
 
-Cursor's agent process advertises its own skills, and Pi cannot suppress that from the adapter: measured with a sentinel skill, `cursor-agent` listed it by name in a plain run, and `CURSOR_CONFIG_DIR` isolation still listed every skill. Only an isolated `HOME` removes them, which also removes authentication. Hiding one skill does work: adding `disable-model-invocation: true` to its `SKILL.md` dropped it from the roster while the other sentinel stayed. So the roster-free invariant holds for models Pi itself serves, and Cursor models remain the known exception.
+Cursor's agent process advertises its own skills, and Pi cannot suppress that from the adapter: measured with a sentinel skill, `cursor-agent` listed it by name in a plain run, and `CURSOR_CONFIG_DIR` isolation still listed every skill. Only an isolated `HOME` removes them, which also removes authentication. Hiding one skill does work: adding `disable-model-invocation: true` to its `SKILL.md` dropped it from the roster while the other sentinel stayed. Pi keeps the roster it serves. Cursor models still list their own skills as well, which this adapter does not control.
 
 The selection core is `src/select.ts` (`selectSkill`, plus the `select.js` stdin entrypoint). Rebuild with `npm run build` and redeploy `dist/` before relying on it: the plugin shells out to `~/.local/share/skill-gateway/dist/select.js` by default. Both the entrypoint and the library are read on the BB server machine, so a thread whose Pi session runs on another host needs that host's files shared first. Roll back with `--jev-via-bb=false` (local chooser returns) or `bb plugin disable skill-gateway`.
 
