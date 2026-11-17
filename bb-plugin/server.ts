@@ -1,10 +1,9 @@
 // bb-plugin-skill-gateway — the skill-selection decision lives in BB.
 //
-// A host adapter (today: the Pi extension) suppresses its provider's native
-// skill roster, then posts one user message here. This plugin runs the
-// Skill Gateway entrypoint, which searches the library locally and asks Jev for
-// one skill or none, and returns only that skill's instructions. The adapter
-// injects them; nothing about the library reaches the model otherwise.
+// A host adapter posts one user message here and keeps its skill roster.
+// This plugin runs the Skill Gateway entrypoint and returns its context
+// unchanged. That context is one ignorable relevance tag, or empty when
+// lookup fails.
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -17,7 +16,6 @@ import { createSkillMentionProvider, type GatewayToolCall } from "./skill-mentio
 import { z } from "zod";
 
 const MAX_PROMPT_CHARS = 32_000;
-const MAX_LOADED = 64;
 const SELECT_TIMEOUT_MS = 10_000;
 const SERVER_START_TIMEOUT_MS = 15_000;
 const SERVER_STOP_TIMEOUT_MS = 5_000;
@@ -94,19 +92,6 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  const loadedKey = (sessionId: string) => `loaded:${sessionId}`;
-
-  async function loadedFor(sessionId: string): Promise<string[]> {
-    const names = await bb.storage.kv.get<string[]>(loadedKey(sessionId));
-    return Array.isArray(names) ? names : [];
-  }
-
-  async function remember(sessionId: string, name: string): Promise<void> {
-    const names = await loadedFor(sessionId);
-    if (names.includes(name)) return;
-    await bb.storage.kv.set(loadedKey(sessionId), [...names, name].slice(-MAX_LOADED));
-  }
-
   type Answer = z.infer<typeof answerSchema>;
 
   const callGatewayTool: GatewayToolCall = async (name, args) => {
@@ -144,13 +129,11 @@ export default async function plugin(bb: BbPluginApi) {
       ...(request.threadId ? { threadId: request.threadId } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...((request.root ?? libraryRoot) ? { root: request.root ?? libraryRoot } : {}),
-      loaded: await loadedFor(request.sessionId),
     });
     try {
       const stdout = await run(nodeBinary, [gatewayEntry], payload);
       const parsed = answerSchema.safeParse(JSON.parse(stdout));
       if (!parsed.success) return { ok: false, message: "select entrypoint returned an unexpected shape" };
-      if (parsed.data.name && parsed.data.inline) await remember(request.sessionId, parsed.data.name);
       return { ok: true, answer: parsed.data };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : "select failed" };
@@ -172,7 +155,7 @@ export default async function plugin(bb: BbPluginApi) {
     });
   }
 
-  // The host adapter's only entry: one message in, one skill's instructions out.
+  // One message in, the entrypoint's context out. The host keeps its roster.
   bb.http.route(
     "POST",
     "/select",
