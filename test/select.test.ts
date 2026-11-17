@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { selectFromStdin, selectSkill, type RosterSkill } from "../src/select.ts";
+import { libraryRoster, selectFromStdin, selectSkill, suggestionRoster, type RosterSkill } from "../src/select.ts";
+import { loadMerged } from "../src/search.ts";
 import { MODEL_PHASES } from "../src/selection-log.ts";
 
 function library(): RosterSkill[] {
@@ -244,6 +245,69 @@ test("writes only model phases the ledger vocabulary knows", async () => {
   } finally {
     delete process.env.SKILL_GATEWAY_EVENTS;
   }
+});
+
+function writeSkill(root: string, name: string, body: string): string {
+  const dir = join(root, name);
+  mkdirSync(dir, { recursive: true });
+  const filePath = join(dir, "SKILL.md");
+  writeFileSync(filePath, `---\nname: ${name}\ndescription: ${name}\n---\n${body}\n`);
+  return filePath;
+}
+
+test("default selection names only the manager library", () => {
+  const manager = mkdtempSync(join(tmpdir(), "sg-manager-"));
+  const gateway = mkdtempSync(join(tmpdir(), "sg-gateway-"));
+  const managerFile = writeSkill(manager, "skill-a", "MANAGER_A");
+  writeSkill(gateway, "skill-b", "PRIVATE_B");
+  const roster = suggestionRoster({ managerRoot: manager, gatewayRoot: gateway });
+  assert.deepEqual(roster.map((skill) => skill.name), ["skill-a"]);
+  assert.equal(realpathSync(roster[0]!.filePath), realpathSync(managerFile));
+  assert.deepEqual(
+    loadMerged([gateway, manager]).map((skill) => skill.document.name),
+    ["skill-a", "skill-b"],
+  );
+});
+
+test("the same name in both roots uses the manager copy once", () => {
+  const manager = mkdtempSync(join(tmpdir(), "sg-manager-"));
+  const gateway = mkdtempSync(join(tmpdir(), "sg-gateway-"));
+  const managerFile = writeSkill(manager, "shared", "MANAGER_COPY");
+  writeSkill(gateway, "shared", "PRIVATE_COPY");
+  const roster = suggestionRoster({ managerRoot: manager, gatewayRoot: gateway });
+  assert.equal(roster.length, 1);
+  assert.equal(roster[0]!.name, "shared");
+  assert.equal(realpathSync(roster[0]!.filePath), realpathSync(managerFile));
+});
+
+test("an explicit roster can still select a private-library skill", async () => {
+  const gateway = mkdtempSync(join(tmpdir(), "sg-gateway-"));
+  const filePath = writeSkill(gateway, "skill-b", "PRIVATE_B");
+  const result = await selectSkill(
+    { prompt: "use the private skill", roster: [{ name: "skill-b", description: "skill-b", filePath }] },
+    { apiKey: "test-key", fetcher: fetcherChoosing("skill-b"), record: false },
+  );
+  assert.equal(result.name, "skill-b");
+});
+
+test("an explicit root still loads that root", () => {
+  const gateway = mkdtempSync(join(tmpdir(), "sg-gateway-"));
+  writeSkill(gateway, "skill-b", "PRIVATE_B");
+  const roster = libraryRoster(gateway);
+  assert.deepEqual(roster.map((skill) => skill.name), ["skill-b"]);
+});
+
+test("the trial roster keeps the manager skill and the host skill", () => {
+  const manager = mkdtempSync(join(tmpdir(), "sg-manager-"));
+  const gateway = mkdtempSync(join(tmpdir(), "sg-gateway-"));
+  writeSkill(manager, "skill-a", "MANAGER_A");
+  writeSkill(gateway, "skill-b", "PRIVATE_B");
+  const roster = suggestionRoster({
+    managerRoot: manager,
+    gatewayRoot: gateway,
+    native: [{ name: "skill-c", description: "host skill", filePath: join(gateway, "missing", "SKILL.md") }],
+  });
+  assert.deepEqual(roster.map((skill) => skill.name), ["skill-a", "skill-c"]);
 });
 
 test("records why a model call failed, not just that nothing was injected", async () => {

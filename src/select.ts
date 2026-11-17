@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JevSkillSuggestion, JEV_UPSTREAM_DEFAULTS, JEV_UPSTREAM_POLICY, type FileSkill, type JevSuggestion } from "./jev-skill-suggestion.ts";
 import { readTypeSafeKey } from "./secrets.ts";
-import { defaultRoots, loadMerged } from "./search.ts";
+import { DEFAULT_ROOT, GATEWAY_LIBRARY, loadMerged } from "./search.ts";
 import { appendUsageEvent, promptDigest } from "./usage-events.ts";
 
 /**
@@ -57,13 +57,32 @@ export type SelectDependencies = {
   roster?: RosterSkill[];
 };
 
-export function libraryRoster(root?: string): RosterSkill[] {
-  const roots = root ? [root] : defaultRoots();
-  return loadMerged(roots).map(({ document }) => ({
+/**
+ * Skills a tag may name. An explicit root is an operator override.
+ * Otherwise only the manager library is loaded. The private gateway library
+ * can be passed in and is not scanned; search still merges both roots.
+ * Skills the host already listed are added after the library, so a host copy wins a shared name.
+ */
+export function suggestionRoster(input: {
+  root?: string;
+  managerRoot?: string;
+  gatewayRoot?: string;
+  native?: readonly RosterSkill[];
+} = {}): RosterSkill[] {
+  const manager = input.managerRoot ?? DEFAULT_ROOT;
+  const root = input.root ?? manager;
+  void input.gatewayRoot;
+  const library = loadMerged([root]).map(({ document }) => ({
     name: document.name,
     description: document.originalDescription ?? document.description,
     filePath: join(document.path, "SKILL.md"),
   }));
+  const native = input.native ?? [];
+  return [...new Map([...library, ...native].map((skill) => [skill.name, skill])).values()];
+}
+
+export function libraryRoster(root?: string): RosterSkill[] {
+  return suggestionRoster(root ? { root } : { managerRoot: DEFAULT_ROOT, gatewayRoot: GATEWAY_LIBRARY });
 }
 
 export async function selectSkill(

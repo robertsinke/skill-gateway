@@ -207,12 +207,12 @@ describe("Pi integration", () => {
     const handlers = new Map<string, (...args: any[]) => any>();
     const pi = { registerFlag() {}, getFlag: () => enabled, on: (name: string, handler: (...args: any[]) => any) => handlers.set(name, handler) };
     const ctx = { cwd: f.root, getSystemPromptOptions: () => ({}), sessionManager: { getSessionId: () => "native-main" }, ui: { notify() {}, setStatus() {} } };
-    const event = () => ({ messageType: "user", prompt: "review task", systemPromptOptions: { skills: [{ name: "native-skill", description: "native procedure", filePath: join(f.root, "missing.md") }], sections: { keep: "KEEP" } } });
+    const event = () => ({ messageType: "user", prompt: "review task", systemPromptOptions: { skills: [...f.roster.map((skill) => ({ name: skill.name, description: skill.description, filePath: skill.filePath })), { name: "native-skill", description: "native procedure", filePath: join(f.root, "missing.md") }], sections: { keep: "KEEP" } } });
     try {
       process.env.SKILL_GATEWAY_ROOT = f.root; process.env.SKILL_GATEWAY_LOG = "-"; process.env.SKILL_GATEWAY_EVENTS = events;
       register(pi as any, { apiKey: "fixture", fetcher: net.fetcher });
       handlers.get("session_start")!({}, ctx);
-      const unchanged = event(); assert.equal(await handlers.get("before_agent_start")!(unchanged, ctx), undefined); assert.equal(unchanged.systemPromptOptions.skills.length, 1);
+      const unchanged = event(); assert.equal(await handlers.get("before_agent_start")!(unchanged, ctx), undefined); assert.equal(unchanged.systemPromptOptions.skills.length, f.roster.length + 1);
       enabled = true; handlers.get("session_start")!({}, ctx);
       const e = event(), result = await handlers.get("before_agent_start")!(e, ctx);
       assert.deepEqual(e.systemPromptOptions.skills, []); assert.deepEqual(e.systemPromptOptions.sections, { keep: "KEEP" });

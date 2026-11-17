@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { defaultRoots, loadMerged } from "../src/search.ts";
+import { suggestionRoster } from "../src/select.ts";
 import { JevSkillSuggestion, JEV_UPSTREAM_POLICY, JEV_UPSTREAM_DEFAULTS, type FileSkill, type JevSuggestion } from "../src/jev-skill-suggestion.ts";
 import { readTypeSafeKey } from "../src/secrets.ts";
 import { appendUsageEvent, promptDigest } from "../src/usage-events.ts";
@@ -51,12 +50,15 @@ export default function jevSkillSuggestion(pi: ExtensionAPI, options: Options = 
     event.systemPromptOptions.skills = [];
     if (event.messageType !== "user" || !event.prompt.trim() || /^\/\S/.test(event.prompt.trim())
       || /^<skill name="[^"]+" location="/.test(event.prompt.trim())) return;
-    let library: FileSkill[] = [];
+    let roster: FileSkill[] = native;
     try {
-      const roots = process.env.SKILL_GATEWAY_ROOT ? [process.env.SKILL_GATEWAY_ROOT] : defaultRoots();
-      library = loadMerged(roots).map(({ document: d }) => ({ name: d.name, description: d.originalDescription ?? d.description, filePath: join(d.path, "SKILL.md") }));
+      roster = suggestionRoster({ native }).map((skill) => ({
+        name: skill.name,
+        description: skill.description ?? "",
+        filePath: skill.filePath,
+        ...(skill.disableModelInvocation ? { disableModelInvocation: true } : {}),
+      }));
     } catch { /* Native skills are still available if the library cannot be scanned. */ }
-    const roster = [...new Map([...library, ...native].map((s) => [s.name, s])).values()];
     const session = ctx.sessionManager.getSessionId(), turn = randomUUID(), current = generation;
     const answer = await chooser.suggest(event.prompt, roster, ctx.cwd);
     if (current !== generation) return;
