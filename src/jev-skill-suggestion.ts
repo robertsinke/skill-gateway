@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { explicitSkillPrompt } from "./explicit-skill-prompt.ts";
 import { relevanceText } from "./relevance-text.ts";
 import { readTypeSafeKey } from "./secrets.ts";
 import { skillGateListCostUsd } from "./skill-gate.ts";
@@ -63,8 +64,8 @@ export class JevSkillSuggestion {
       return result;
     };
     if (!this.options.allowSkillExcerpts) { result.reason = "skill_excerpt_permission_required"; return finish(); }
-    // Pi expands an explicit /skill:name before before_agent_start. Do not select another skill over it.
-    if (!prompt.trim() || /^\/\S/.test(prompt.trim()) || /^<skill name="[^"]+" location="/.test(prompt.trim())) {
+    // A slash command, a skill tag, or a resolved ~ mention already names a skill.
+    if (!prompt.trim() || explicitSkillPrompt(prompt)) {
       result.reason = "not_an_implicit_skill_request"; return finish();
     }
     const skills = catalog(roster.map((s) => ({ ...s, source: "skill" })), new Set(), new Set());

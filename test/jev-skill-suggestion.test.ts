@@ -89,7 +89,7 @@ describe("original Jev policy in Pi", () => {
   it("makes no calls without excerpt consent, credentials, candidates, or for explicit skills", async () => {
     const f = fixture(), net = network();
     try {
-      for (const [allow, key, prompt, roster] of [[false, "fixture", "review", f.roster], [true, null, "review", f.roster], [true, "fixture", "review", []], [true, "fixture", "/skill:skill-7", f.roster], [true, "fixture", '<skill name="skill-7" location="/file">\nbody\n</skill>', f.roster]] as const) {
+      for (const [allow, key, prompt, roster] of [[false, "fixture", "review", f.roster], [true, null, "review", f.roster], [true, "fixture", "review", []], [true, "fixture", "/skill:skill-7", f.roster], [true, "fixture", '<skill name="skill-7" location="/file">\nbody\n</skill>', f.roster], [true, "fixture", `${SKILL_MENTION_MARKER} ce-plan`, f.roster], [true, "fixture", `Change the files\n\n${SKILL_MENTION_MARKER} ce-plan`, f.roster]] as const) {
         const answer = await new JevSkillSuggestion({ allowSkillExcerpts: allow, apiKey: key, fetcher: net.fetcher }).suggest(prompt, roster, f.root);
         assert.equal(answer.context, ""); assert.equal(answer.requests.length, 0);
       }
