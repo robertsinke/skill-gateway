@@ -199,9 +199,9 @@ describe("Pi integration", () => {
     assert.deepEqual(defaults, [false, true]);
   });
 
-  it("is opt-in, hides only the skill section, logs the exact turn, and suppresses only this session's legacy chooser", async () => {
+  it("is opt-in, keeps the skill roster, logs the exact turn, and suppresses only this session's legacy chooser", async () => {
     const f = fixture(), events = join(f.root, "events.jsonl");
-    const keys = ["SKILL_GATEWAY_ROOT", "SKILL_GATEWAY_LOG", "SKILL_GATEWAY_EVENTS", "SKILL_GATEWAY_PI_JEV_SESSION"];
+    const keys = ["SKILL_GATEWAY_ROOT", "SKILL_GATEWAY_LOG", "SKILL_GATEWAY_EVENTS", "SKILL_GATEWAY_PI_JEV_SESSION", "SKILL_GATEWAY_BB_SESSION"];
     const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
     const net = network(); let enabled = false;
     const handlers = new Map<string, (...args: any[]) => any>();
@@ -214,9 +214,17 @@ describe("Pi integration", () => {
       handlers.get("session_start")!({}, ctx);
       const unchanged = event(); assert.equal(await handlers.get("before_agent_start")!(unchanged, ctx), undefined); assert.equal(unchanged.systemPromptOptions.skills.length, f.roster.length + 1);
       enabled = true; handlers.get("session_start")!({}, ctx);
-      const e = event(), result = await handlers.get("before_agent_start")!(e, ctx);
-      assert.deepEqual(e.systemPromptOptions.skills, []); assert.deepEqual(e.systemPromptOptions.sections, { keep: "KEEP" });
+      const e = event(), kept = e.systemPromptOptions.skills.map((skill) => skill.name);
+      const result = await handlers.get("before_agent_start")!(e, ctx);
+      assert.deepEqual(e.systemPromptOptions.skills.map((skill) => skill.name), kept); assert.deepEqual(e.systemPromptOptions.sections, { keep: "KEEP" });
       assert.ok(net.bodies[0].questions.which.criteria["native-skill"]); assert.equal(result.message.customType, "jev-skill-suggestion");
+      assert.match(result.message.content, /Relevant to the current request: skill-6\./);
+      const owned = event();
+      const ownedNames = owned.systemPromptOptions.skills.map((skill) => skill.name);
+      process.env.SKILL_GATEWAY_BB_SESSION = "native-main";
+      assert.equal(await handlers.get("before_agent_start")!(owned, ctx), undefined);
+      assert.deepEqual(owned.systemPromptOptions.skills.map((skill) => skill.name), ownedNames);
+      delete process.env.SKILL_GATEWAY_BB_SESSION;
       const row = JSON.parse(readFileSync(events, "utf8").trim());
       assert.equal(row.turn_id, result.message.details.turn_id); assert.equal(row.turn_id_source, "pi_jev_extension");
       assert.deepEqual(row.injected_skill_names, ["skill-6"]); assert.equal(row.requests.length, 2);

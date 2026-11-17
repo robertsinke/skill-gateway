@@ -47,7 +47,6 @@ export default function jevSkillSuggestion(pi: ExtensionAPI, options: Options = 
     if (process.env.SKILL_GATEWAY_BB_SESSION === ctx.sessionManager.getSessionId()) return;
     // Use Pi's supported structured skill section, not regex replacement of the system prompt.
     const native = event.systemPromptOptions.skills.map((s) => ({ name: s.name, description: s.description, filePath: s.filePath, disableModelInvocation: s.disableModelInvocation }));
-    event.systemPromptOptions.skills = [];
     if (event.messageType !== "user" || !event.prompt.trim() || /^\/\S/.test(event.prompt.trim())
       || /^<skill name="[^"]+" location="/.test(event.prompt.trim())) return;
     let roster: FileSkill[] = native;

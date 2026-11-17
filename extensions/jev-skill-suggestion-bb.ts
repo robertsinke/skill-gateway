@@ -1,12 +1,12 @@
 /**
  * Pi host adapter for BB-owned skill selection.
  *
- * BB decides; this adapter only does what a harness must do itself:
- *  1. keep Pi's native skill roster out of the model's context, and
- *  2. hand the one selected skill's instructions to the agent.
+ * BB decides and returns one ignorable relevance tag. This adapter keeps
+ * Pi's skill roster and passes that tag to the agent when selection
+ * returns one. A failed lookup adds no tag.
  *
  * Enable with `--jev-via-bb`. The local chooser in jev-skill-suggestion.ts
- * stands down while this flag is on, so exactly one selector runs.
+ * stands down while this flag owns the session, so exactly one selector runs.
  */
 import { execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -73,7 +73,7 @@ export default function jevViaBb(pi: ExtensionAPI, options: Options & { enabledB
   pi.registerFlag("jev-via-bb", {
     type: "boolean",
     default: options.enabledByDefault ?? false,
-    description: "Let the BB skill-gateway plugin select one skill per message; Pi advertises no skill roster",
+    description: "Let the BB skill-gateway plugin add one ignorable skill tag per message. Pi keeps its skill roster",
   });
 
   const off = (ctx: ExtensionContext) => ctx.ui.setStatus("skill-gateway-bb", "BB selection: off");
@@ -98,8 +98,6 @@ export default function jevViaBb(pi: ExtensionAPI, options: Options & { enabledB
   pi.on("before_agent_start", async (event, ctx) => {
     if (pi.getFlag("jev-via-bb") !== true) return;
     claim(ctx);
-    // The invariant holds even when selection fails: no roster reaches the model.
-    event.systemPromptOptions.skills = [];
     const prompt = event.prompt.trim();
     if (event.messageType !== "user" || !prompt) return;
     if (/^\/\S/.test(prompt) || /^<skill name="[^"]+" location="/.test(prompt) || prompt.includes(SKILL_MENTION_MARKER)) return;

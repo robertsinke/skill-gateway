@@ -82,7 +82,7 @@ function harness(options: { fetcher?: typeof fetch } = {}) {
   return { pi, handlers, ctx, statuses, options };
 }
 
-test("claims the session, clears the roster, and injects one selection", async () => {
+test("claims the session, keeps the roster, and returns the selection tag", async () => {
   const fetcher = (async () =>
     new Response(JSON.stringify({ ok: true, name: "flaky-test-fixer", context: "<skill/>", reason: "picked", latency_ms: 5 }), {
       status: 200,
@@ -97,7 +97,7 @@ test("claims the session, clears the roster, and injects one selection", async (
 
   const event = { messageType: "user", prompt: "stabilize the upload test", systemPromptOptions: { skills: [{ name: "native" }] } };
   const output = await handlers.get("before_agent_start")!(event, ctx);
-  assert.deepEqual(event.systemPromptOptions.skills, []);
+  assert.deepEqual(event.systemPromptOptions.skills, [{ name: "native" }]);
   assert.equal(output.message.customType, "skill-gateway-bb");
   assert.equal(output.message.content, "<skill/>");
 
@@ -123,19 +123,58 @@ test("does not run automatic selection when a BB skill mention already resolved"
   const output = await handlers.get("before_agent_start")!(event, ctx);
   assert.equal(output, undefined);
   assert.equal(calls, 0);
-  assert.deepEqual(event.systemPromptOptions.skills, []);
+  assert.deepEqual(event.systemPromptOptions.skills, [{ name: "native" }]);
 });
 
-test("keeps the roster hidden when BB cannot answer", async () => {
+test("a slash prompt or a skill tag does not call BB and keeps the roster", async () => {
+  for (const prompt of ["/skill:plan", '<skill name="x" location="y">\nbody']) {
+    let calls = 0;
+    const fetcher = (async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const { pi, handlers, ctx } = harness();
+    const register = (await import("../extensions/jev-skill-suggestion-bb.ts")).default;
+    register(pi as any, { serverUrl: "http://bb", token: "t", fetcher });
+    const event = { messageType: "user", prompt, systemPromptOptions: { skills: [{ name: "native" }] } };
+    const output = await handlers.get("before_agent_start")!(event, ctx);
+    assert.equal(output, undefined);
+    assert.equal(calls, 0);
+    assert.deepEqual(event.systemPromptOptions.skills, [{ name: "native" }]);
+  }
+});
+
+test("an empty prompt or a non-user message does not call BB and keeps the roster", async () => {
+  for (const event of [
+    { messageType: "user", prompt: "  ", systemPromptOptions: { skills: [{ name: "native" }] } },
+    { messageType: "custom", prompt: "review the change", systemPromptOptions: { skills: [{ name: "native" }] } },
+  ]) {
+    let calls = 0;
+    const fetcher = (async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const { pi, handlers, ctx } = harness();
+    const register = (await import("../extensions/jev-skill-suggestion-bb.ts")).default;
+    register(pi as any, { serverUrl: "http://bb", token: "t", fetcher });
+    const output = await handlers.get("before_agent_start")!(event, ctx);
+    assert.equal(output, undefined);
+    assert.equal(calls, 0);
+    assert.deepEqual(event.systemPromptOptions.skills, [{ name: "native" }]);
+  }
+});
+
+test("a failed BB response adds no tag and keeps the roster", async () => {
   const fetcher = (async () => new Response("{}", { status: 500 })) as typeof fetch;
-  const { pi, handlers, ctx } = harness();
+  const { pi, handlers, ctx, statuses } = harness();
   const register = (await import("../extensions/jev-skill-suggestion-bb.ts")).default;
   register(pi as any, { serverUrl: "http://bb", token: "t", fetcher });
 
   const event = { messageType: "user", prompt: "anything", systemPromptOptions: { skills: [{ name: "native" }] } };
   const output = await handlers.get("before_agent_start")!(event, ctx);
   assert.equal(output, undefined);
-  assert.deepEqual(event.systemPromptOptions.skills, []);
+  assert.deepEqual(event.systemPromptOptions.skills, [{ name: "native" }]);
+  assert.match(statuses.at(-1) ?? "", /BB selection failed/);
 });
 
 test("the registry default decides whether BB selection is on", async () => {
@@ -144,7 +183,9 @@ test("the registry default decides whether BB selection is on", async () => {
   const pi = { registerFlag: (name: string, spec: unknown) => seen.push({ name, spec }), getFlag: () => false, on() {} };
   register(pi as any, { enabledByDefault: true });
   register(pi as any, {});
-  const specs = seen as { name: string; spec: { default: boolean } }[];
+  const specs = seen as { name: string; spec: { default: boolean; description: string } }[];
   assert.equal(specs[0]!.spec.default, true);
   assert.equal(specs[1]!.spec.default, false);
+  assert.doesNotMatch(specs[0]!.spec.description, /no skill roster/);
+  assert.match(specs[0]!.spec.description, /keeps its skill roster/);
 });
