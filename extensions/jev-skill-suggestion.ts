@@ -80,7 +80,7 @@ function audit(prompt: string, session: string, turn: string, roster: FileSkill[
       runtime_policy: JEV_UPSTREAM_POLICY, prompt_sha256: promptDigest(prompt), candidate_names: gate.candidates,
       candidate_rankings: answer.wide?.ranked.map((r, i) => ({ name: r.name, rank: i + 1, search_score: null })) ?? [],
       gate_status: status, gate_model: gate.model, probability: gate.probability, threshold: JEV_UPSTREAM_DEFAULTS.gateThreshold,
-      injected_skill_names: selected, injection_kind: answer.inline ? "inline_body" : answer.name ? "already_loaded_or_file_reference" : "none",
+      injected_skill_names: selected, injection_kind: answer.name ? "advisory_tag" : "none",
       request_attempted: answer.requests.length > 0, requests: answer.requests,
       estimated_input_tokens: answer.requests.reduce((sum, r) => sum + r.estimated_input_tokens, 0),
       ...(reported ? { input_tokens: answer.requests.reduce((sum, r) => sum + r.input_tokens!, 0) } : {}),

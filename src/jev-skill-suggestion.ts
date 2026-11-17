@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { relevanceText } from "./relevance-text.ts";
 import { readTypeSafeKey } from "./secrets.ts";
 import { skillGateListCostUsd } from "./skill-gate.ts";
 import {
-  DEFAULT_BASE_URL, DEFAULT_MODEL, bodyOf, catalog, decide, detailOf, endpoint,
+  DEFAULT_BASE_URL, DEFAULT_MODEL, catalog, decide, detailOf, endpoint,
   modelInvocable, passesGate, readRerank, readWide, requestBody, requestHeaders,
   rerankQuestions, shortlistOf, wideQuestions,
   type Rerank, type Skill, type Wide,
@@ -31,23 +31,18 @@ type Options = {
   allowSkillExcerpts: boolean;
   apiKey?: string | null;
   fetcher?: typeof fetch;
-  /** Skills the caller already injected in this session, so they are re-referenced rather than re-inlined. */
-  loaded?: readonly string[];
 };
 
-/** The TypeSafe path of the original add-on. Only transport, files and Pi's loading text differ. */
+/** The TypeSafe path of the original add-on. Only transport and files differ. */
 export class JevSkillSuggestion {
   private readonly files = new Map<string, Promise<string | null>>();
-  private readonly injected = new Set<string>();
   private generation = 0;
   private readonly options: Options;
   constructor(options: Options) {
     this.options = options;
-    this.loadedNames = new Set(options.loaded ?? []);
   }
-  private readonly loadedNames: Set<string>;
 
-  reset(): void { this.generation++; this.files.clear(); this.injected.clear(); }
+  reset(): void { this.generation++; this.files.clear(); }
 
   private body(skill: FileSkill): Promise<string | null> {
     let value = this.files.get(skill.filePath);
@@ -58,16 +53,20 @@ export class JevSkillSuggestion {
     return value;
   }
 
-  async suggest(prompt: string, roster: readonly FileSkill[], cwd: string): Promise<JevSuggestion> {
+  async suggest(prompt: string, roster: readonly FileSkill[], _cwd: string): Promise<JevSuggestion> {
     const started = Date.now(), generation = this.generation;
     const result: JevSuggestion = { name: null, context: "", reason: "no answer", wide: null, rerank: null, requests: [], latency_ms: 0, inline: false };
-    const finish = () => { result.latency_ms = Date.now() - started; return result; };
+    const finish = () => {
+      result.context = relevanceText(result.name, result.reason);
+      result.inline = false;
+      result.latency_ms = Date.now() - started;
+      return result;
+    };
     if (!this.options.allowSkillExcerpts) { result.reason = "skill_excerpt_permission_required"; return finish(); }
     // Pi expands an explicit /skill:name before before_agent_start. Do not select another skill over it.
     if (!prompt.trim() || /^\/\S/.test(prompt.trim()) || /^<skill name="[^"]+" location="/.test(prompt.trim())) {
       result.reason = "not_an_implicit_skill_request"; return finish();
     }
-    for (const skill of roster) if (this.loadedNames.has(skill.name)) this.injected.add(skill.filePath);
     const skills = catalog(roster.map((s) => ({ ...s, source: "skill" })), new Set(), new Set());
     const paths = new Map<string, FileSkill>();
     for (const skill of roster) if (!paths.has(skill.name)) paths.set(skill.name, skill);
@@ -137,25 +136,10 @@ export class JevSkillSuggestion {
     if (generation !== this.generation) { result.reason = "context_changed"; return finish(); }
     if (pick.disableModelInvocation || !modelInvocable(markdown)) { result.reason = "disable-model-invocation"; return finish(); }
     result.name = pick.name;
-    result.context = skillInjection(pick, markdown, cwd, this.injected.has(pick.filePath));
-    result.inline = !!markdown && !this.injected.has(pick.filePath);
-    if (markdown) this.injected.add(pick.filePath);
     return finish();
   }
 }
 
-function skillInjection(skill: FileSkill, markdown: string | null, cwd: string, loaded: boolean): string {
-  const lines = ["<skill_relevance>", `Relevant to the current request: ${skill.name}. Ignore this if it does not fit what the user actually asked for.`];
-  if (loaded) lines.push(`Skill /${skill.name} is already loaded above; instructions unchanged.`);
-  else if (markdown) {
-    const dir = dirname(skill.filePath);
-    const body = bodyOf(markdown).replace(/\$\{CLAUDE_SKILL_DIR\}/g, () => dir).replace(/\$\{CLAUDE_PROJECT_DIR\}/g, () => cwd);
-    lines.push(`Its instructions follow: follow them now, including any setup steps. They are already loaded here; do not read the skill file again. Its files are in ${dir}.`,
-      `<skill name="${xml(skill.name)}" dir="${xml(dir)}">`, body, "</skill>");
-  } else lines.push(`${skill.name}: ${skill.description}`, `Read ${skill.filePath} to load this skill before starting. If it is unavailable, tell the user.`);
-  lines.push("</skill_relevance>"); return lines.join("\n");
-}
-function xml(text: string): string { return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"); }
 function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function tokens(value: unknown): number | null { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null; }
 /** Reject malformed wire values without changing the upstream policy for valid answers (including missing optional answers). */

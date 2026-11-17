@@ -55,7 +55,10 @@ describe("original Jev policy in Pi", () => {
       assert.deepEqual(net.bodies[1], JSON.parse(requestBody("typesafe", "review task", rerankQuestions("typesafe", candidates), DEFAULT_MODEL.typesafe)));
       assert.deepEqual(Object.keys(net.bodies[1].questions.which.criteria), ["skill-7", "skill-6", "skill-5"]);
       assert.ok(!JSON.stringify(net.bodies[1]).includes("PRIVATE_TAIL"));
-      assert.equal(answer.name, "skill-6"); assert.ok(answer.context.includes("PRIVATE_TAIL_6")); assert.equal(answer.inline, true);
+      assert.equal(answer.name, "skill-6"); assert.equal(answer.inline, false);
+      assert.match(answer.context, /Relevant to the current request: skill-6\./);
+      assert.match(answer.context, /Ignore this if it does not fit/);
+      assert.ok(!answer.context.includes("PRIVATE_TAIL_6")); assert.ok(!answer.context.includes("instructions follow"));
       assert.ok(!answer.context.includes("Skill tool")); assert.ok(!answer.context.includes("PRIVATE_TAIL_7"));
       assert.equal(answer.requests.length, 2); assert.ok(net.signals.every((s) => s instanceof AbortSignal));
       assert.ok(answer.requests.every((r) => r.status === "ok" && r.input_tokens === 100));
@@ -113,19 +116,42 @@ describe("original Jev policy in Pi", () => {
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 
-  it("uses descriptions when a body is missing; caches bodies and injects them only once until reset", async () => {
+  it("uses descriptions when a body is missing; caches bodies and still returns the name tag", async () => {
     const f = fixture(), net = network(), chooser = new JevSkillSuggestion({ allowSkillExcerpts: true, apiKey: "fixture", fetcher: net.fetcher });
     rmSync(f.roster[5]!.filePath);
     try {
-      assert.equal((await chooser.suggest("review", f.roster, f.root)).inline, true);
+      const first = await chooser.suggest("review", f.roster, f.root);
+      assert.equal(first.inline, false);
+      assert.match(first.context, /Relevant to the current request: skill-6\./);
       assert.equal(net.bodies[1].questions.which.criteria["skill-5"], "review task 5");
       writeFileSync(f.roster[6]!.filePath, "---\nname: skill-6\n---\nNEW_BODY");
       const again = await chooser.suggest("review", f.roster, f.root);
-      assert.ok(again.context.includes("already loaded above")); assert.equal(again.inline, false);
+      assert.match(again.context, /Relevant to the current request: skill-6\./);
+      assert.ok(!again.context.includes("already loaded")); assert.equal(again.inline, false);
+      assert.ok(!again.context.includes("NEW_BODY"));
       assert.ok(!JSON.stringify(net.bodies[3]).includes("NEW_BODY"));
       chooser.reset();
       const fresh = await chooser.suggest("review", f.roster, f.root);
-      assert.equal(fresh.inline, true); assert.ok(fresh.context.includes("NEW_BODY"));
+      assert.equal(fresh.inline, false); assert.ok(!fresh.context.includes("NEW_BODY"));
+      assert.match(fresh.context, /Relevant to the current request: skill-6\./);
+      assert.ok(JSON.stringify(net.bodies[5]).includes("NEW_BODY"));
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  it("returns no tag when the chosen skill disables model invocation", async () => {
+    const f = fixture();
+    let calls = 0;
+    const fetcher = (async () => {
+      calls += 1;
+      if (calls === 2) f.roster[6]!.disableModelInvocation = true;
+      return new Response(JSON.stringify(calls === 1 ? wide() : rerank()));
+    }) as typeof fetch;
+    try {
+      const answer = await new JevSkillSuggestion({ allowSkillExcerpts: true, apiKey: "fixture", fetcher }).suggest("review", f.roster, f.root);
+      assert.equal(answer.name, null);
+      assert.equal(answer.reason, "disable-model-invocation");
+      assert.equal(answer.context, "");
+      assert.equal(answer.inline, false);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
   });
 

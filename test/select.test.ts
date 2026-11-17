@@ -34,39 +34,87 @@ function fetcherChoosing(name: string): typeof fetch {
   }) as typeof fetch;
 }
 
-test("selects one skill and returns only its instructions", async () => {
+function assertAdvisoryTag(context: string, name: string): void {
+  assert.match(context, new RegExp(`Relevant to the current request: ${name}\\.`));
+  assert.match(context, /Ignore this if it does not fit/);
+  assert.doesNotMatch(context, /deterministic time/);
+  assert.doesNotMatch(context, /instructions follow/);
+  assert.doesNotMatch(context, /SKILL\.md/);
+  assert.doesNotMatch(context, /already loaded/);
+}
+
+test("selects one skill and returns an ignorable name tag", async () => {
   const roster = library();
   const result = await selectSkill(
     { prompt: "our upload test keeps failing intermittently", roster, cwd: "/tmp" },
     { apiKey: "test-key", fetcher: fetcherChoosing("flaky-test-fixer"), record: false },
   );
   assert.equal(result.name, "flaky-test-fixer");
-  assert.match(result.context, /<skill name="flaky-test-fixer"/);
-  assert.match(result.context, /deterministic time/);
+  assert.equal(result.inline, false);
+  assertAdvisoryTag(result.context, "flaky-test-fixer");
   assert.equal(result.candidates.length, 2);
 });
 
-test("an already injected skill is referenced, not inlined twice", async () => {
+test("a name already in loaded still returns the same tag", async () => {
   const roster = library();
   const result = await selectSkill(
     { prompt: "still flaky", roster, loaded: ["flaky-test-fixer"] },
     { apiKey: "test-key", fetcher: fetcherChoosing("flaky-test-fixer"), record: false },
   );
   assert.equal(result.name, "flaky-test-fixer");
-  assert.match(result.context, /already loaded above/);
-  assert.doesNotMatch(result.context, /deterministic time/);
+  assert.equal(result.inline, false);
+  assertAdvisoryTag(result.context, "flaky-test-fixer");
 });
 
-test("selects nothing when Jev rejects the prompt", async () => {
+test("a completed gate rejection says no skill in the roster", async () => {
   const roster = library();
   const rejecting = (async () =>
-    new Response(JSON.stringify({ answers: { which: { choice: "none", confidence: 0.2 } } }), { status: 200 })) as typeof fetch;
+    new Response(
+      JSON.stringify({
+        answers: {
+          which: { choice: "flaky-test-fixer", confidence: 0.1, probabilities: { "flaky-test-fixer": 0.1 } },
+          "gate::acts_on_user_system": { noul: 0.1 },
+          "gate::would_follow_documented_procedure": { noul: 0.1 },
+          "gate::prose_suffices": { noul: 0.9 },
+        },
+      }),
+      { status: 200 },
+    )) as typeof fetch;
   const result = await selectSkill(
     { prompt: "what time is it", roster },
     { apiKey: "test-key", fetcher: rejecting, record: false },
   );
   assert.equal(result.name, null);
-  assert.equal(result.context, "");
+  assert.equal(result.inline, false);
+  assert.equal(result.reason, "needs a skill 0.10 < 0.3");
+  assert.match(result.context, /No skill in the roster appears relevant/);
+  assert.doesNotMatch(result.context, /deterministic time/);
+});
+
+test("a completed fit rejection says no skill in the roster", async () => {
+  const roster = library();
+  let calls = 0;
+  const rejecting = (async () => {
+    calls += 1;
+    const answers =
+      calls === 1
+        ? {
+            which: { choice: "flaky-test-fixer", probabilities: { "flaky-test-fixer": 0.9 } },
+            "gate::acts_on_user_system": { noul: 0.9 },
+            "gate::would_follow_documented_procedure": { noul: 0.9 },
+            "gate::prose_suffices": { noul: 0.1 },
+          }
+        : { which: { choice: "flaky-test-fixer", confidence: 0.2 }, "fits::flaky-test-fixer": { noul: 0.1 } };
+    return new Response(JSON.stringify({ answers }), { status: 200 });
+  }) as typeof fetch;
+  const result = await selectSkill(
+    { prompt: "what time is it", roster },
+    { apiKey: "test-key", fetcher: rejecting, record: false },
+  );
+  assert.equal(result.name, null);
+  assert.equal(result.inline, false);
+  assert.equal(result.reason, "nothing fits, best 0.10 < 0.3");
+  assert.match(result.context, /No skill in the roster appears relevant/);
 });
 
 test("selects nothing without a TypeSafe key", async () => {
@@ -74,6 +122,36 @@ test("selects nothing without a TypeSafe key", async () => {
   const result = await selectSkill({ prompt: "flaky test", roster }, { apiKey: null, fetcher: fetcherChoosing("flaky-test-fixer"), record: false });
   assert.equal(result.name, null);
   assert.equal(result.reason, "credential_unavailable");
+  assert.equal(result.context, "");
+});
+
+test("a rerank that gives no answer adds no tag", async () => {
+  const roster = library();
+  let calls = 0;
+  const fetcher = (async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({
+          answers: {
+            which: { choice: "flaky-test-fixer", probabilities: { "flaky-test-fixer": 0.9 } },
+            "gate::acts_on_user_system": { noul: 0.9 },
+            "gate::would_follow_documented_procedure": { noul: 0.9 },
+            "gate::prose_suffices": { noul: 0.1 },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response("down", { status: 503 });
+  }) as typeof fetch;
+  const result = await selectSkill(
+    { prompt: "stabilize the upload test", roster },
+    { apiKey: "test-key", fetcher, record: false },
+  );
+  assert.equal(result.name, null);
+  assert.equal(result.context, "");
+  assert.match(result.reason, /^rerank gave no answer/);
 });
 
 test("stdin entrypoint rejects a missing prompt", async () => {
@@ -97,7 +175,37 @@ test("records one ledger row per selection with the asking host", async () => {
     assert.equal(rows[0]!.platform, "bb");
     assert.equal(rows[0]!.session_id, "s1");
     assert.equal(rows[0]!.gate_status, "pass");
+    assert.equal(rows[0]!.injection_kind, "advisory_tag");
     assert.deepEqual(rows[0]!.injected_skill_names, ["flaky-test-fixer"]);
+  } finally {
+    delete process.env.SKILL_GATEWAY_EVENTS;
+  }
+});
+
+test("a completed rejection records injection_kind none", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "sg-select-reject-")), "usage-events.jsonl");
+  process.env.SKILL_GATEWAY_EVENTS = path;
+  const rejecting = (async () =>
+    new Response(
+      JSON.stringify({
+        answers: {
+          which: { choice: "flaky-test-fixer", probabilities: { "flaky-test-fixer": 0.1 } },
+          "gate::acts_on_user_system": { noul: 0.1 },
+          "gate::would_follow_documented_procedure": { noul: 0.1 },
+          "gate::prose_suffices": { noul: 0.9 },
+        },
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+  try {
+    const result = await selectSkill(
+      { prompt: "what time is it", roster: library(), platform: "bb" },
+      { apiKey: "test-key", fetcher: rejecting },
+    );
+    assert.equal(result.name, null);
+    const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(rows[0]!.injection_kind, "none");
+    assert.equal(rows[0]!.gate_status, "reject");
   } finally {
     delete process.env.SKILL_GATEWAY_EVENTS;
   }
@@ -153,7 +261,9 @@ test("records why a model call failed, not just that nothing was injected", asyn
     );
     assert.equal(result.name, null);
     assert.equal(result.reason, "no answer");
+    assert.equal(result.context, "");
     const rows = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(rows[0]!.injection_kind, "none");
     const requests = rows[0]!.requests as { phase: string; status: string; reason: string }[];
     assert.equal(requests.length, 1);
     assert.equal(requests[0]!.phase, "gate");

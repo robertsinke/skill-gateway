@@ -8,9 +8,9 @@ import { appendUsageEvent, promptDigest } from "./usage-events.ts";
 /**
  * One provider-neutral skill selection for one user message.
  *
- * BB owns the decision and calls this through the plugin; Pi only suppresses its
- * native roster and injects the returned context. Keeping the policy here means
- * every host runs the same Jev selection instead of a per-harness copy.
+ * BB owns the decision and calls this through the plugin. The returned context
+ * is one ignorable relevance tag, or empty when lookup fails. The host keeps
+ * its skill roster. Every host runs the same Jev selection.
  */
 export type SelectRequest = {
   prompt: string;
@@ -18,7 +18,7 @@ export type SelectRequest = {
   cwd?: string;
   /** Library root; defaults to the gateway's standard roots. */
   root?: string;
-  /** Skill names already injected in this session. */
+  /** Older callers send names already shown. The tag does not change. */
   loaded?: string[];
   /** Host that asked, recorded in the gate ledger. */
   platform?: string;
@@ -90,7 +90,6 @@ export async function selectSkill(
     allowSkillExcerpts: true,
     apiKey,
     ...(dependencies.fetcher ? { fetcher: dependencies.fetcher } : {}),
-    ...(request.loaded ? { loaded: request.loaded } : {}),
   });
   const suggestion = await chooser.suggest(request.prompt, roster, request.cwd ?? process.cwd());
   if (dependencies.record !== false) record(request, suggestion, roster.map((skill) => skill.name));
@@ -129,7 +128,7 @@ function record(request: SelectRequest, suggestion: JevSuggestion, candidates: s
       probability: suggestion.wide?.gate ?? null,
       threshold: JEV_UPSTREAM_DEFAULTS.gateThreshold,
       injected_skill_names: injected,
-      injection_kind: suggestion.inline ? "inline_body" : suggestion.name ? "already_loaded_or_file_reference" : "none",
+      injection_kind: suggestion.name ? "advisory_tag" : "none",
       request_attempted: suggestion.requests.length > 0,
       ...(reported ? { input_tokens: tokens } : {}),
       estimated_input_tokens: tokens,
